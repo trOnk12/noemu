@@ -21,7 +21,7 @@ Everything below ran in a cloud container with no emulator, with the final drive
 | Jetsnack | worth a look: "SEE LESS" back to "SEE MORE" after a rotation | `var seeMore by remember { mutableStateOf(true) }` (`SnackDetail.kt:313`) |
 
 The Jetchat crash needs the same text sent twice: the crawl replays a type-and-submit that changed the screen, and
-found the crash in 2 of 7 crawls with the final driver. By hand, every time:
+found the crash in 5 of 5 fresh crawls (2 of 7 before a ticking video clock stopped hiding the screen from the crawl). By hand, every time:
 
 ```text
 $ noemu type "Text input" "ok" && noemu tap Send && noemu type "Text input" "ok" && noemu tap Send
@@ -41,7 +41,7 @@ undoes it.
 | Fossify File Manager [#111](https://github.com/FossifyOrg/File-Manager/pull/111) "Text File Editor losing unsaved changes when rotating screen" | put back | problem: "ReadTextActivity: typed text lost: \"noemu\"" | not reported |
 | Fossify Notes [`a24d3223`](https://github.com/FossifyOrg/Notes/commit/a24d3223) "Fix crash when restoring state on TextFragment" | put back | crash: `ClassCastException: MyEditText cannot be cast to MyTextView` in `TextFragment.onViewStateRestored` | no crash |
 | Fossify Calculator [#305](https://github.com/FossifyOrg/Calculator/pull/305) "Fix data lost during rotation" | put back | worth a look: "MainActivity: gone after rotating there and back: text 0." (the number being entered) | not reported |
-| Fossify Calendar `a8c2e66` "properly retain event fields on device rotation" | restore removed from today's `EventActivity` | crash: `UninitializedPropertyAccessException: lateinit property mEventStartDateTime` in `EventActivity.onSaveInstanceState`, in earlier runs; the final run didn't reach the event editor | no crash |
+| Fossify Calendar `a8c2e66` "properly retain event fields on device rotation" | restore removed from today's `EventActivity` | crash: `UninitializedPropertyAccessException: lateinit property mEventStartDateTime` in `EventActivity.onSaveInstanceState`, in 2 of 2 fresh crawls | no crash |
 
 ## The app killed in the background
 
@@ -98,6 +98,7 @@ Each was a false report that is now gone:
 
 ## Limits
 
-- What the crawl reaches varies between runs (timing changes what is on screen, and so the order of taps): the Jetchat
-  crash and the Calendar event-editor crash were found in some crawls, not all.
+- What the crawl reaches can vary between runs (timing changes what is on screen). After the last round of fixes, each
+  finding above came up in every fresh crawl we ran: Jetchat 5 of 5, the others 2 of 2 each, and the fixed Calendar
+  stayed clean in 2 of 2. More runs would tighten those numbers.
 - Rows marked "put back" are today's code with the historical bug re-applied, not the historical release.

@@ -264,7 +264,9 @@ class NoemuDriver {
         val killedOn = mutableSetOf<String>()
         fun signature(es: List<Element>) = onActivity { it.javaClass.simpleName } + "|" +
             es.filter { it.click != null || it.setText != null }
-                .joinToString("|") { if (it.setText != null) "field" else it.label.take(40) }.hashCode()  // typing isn't a new screen
+                // Typing isn't a new screen, and neither is a ticking clock or a video position: fields and digits are
+                // left out of what names the screen.
+                .joinToString("|") { if (it.setText != null) "field" else it.label.take(40).replace(Regex("\\d+"), "#") }.hashCode()
         fun restart() {
             stack.toList().reversed().forEach { runCatching { it.pause().stop().destroy() } }
             stack.clear()
@@ -274,6 +276,7 @@ class NoemuDriver {
         }
         // A budget in time too: an app that slows down as it runs (views stacking up) still gets its report.
         val deadline = System.nanoTime() + minutes * 60_000_000_000L
+        val crawlLog = File(out, "crawl.log").apply { writeText("") }
         // Elements hold views, and views their activity: outside the loop, so the leak check can let go of them.
         var es: List<Element> = emptyList()
         var fields: List<Element> = emptyList()
@@ -298,14 +301,17 @@ class NoemuDriver {
             val changedHere = acted && sig == lastSig && content != lastContent
             // Every screen once when first seen, again after an action changed it, and every so often anyway.
             // After an action changed a screen, once per screen: the app killed in the background and reopened.
-            val killing = stack.isNotEmpty() && replay.isEmpty() && changedHere && killedOn.add(sig)
-            val rotating = !killing && stack.isNotEmpty() && replay.isEmpty() &&
-                (sig !in rotatedOn || (changedHere && rotatedOn.getValue(sig) < 3) || actions % 10 == 9)
             // Typing then tapping changed the screen (a message sent, an item added): do it once more, as users
-            // do. Doing the same thing twice is where duplicate keys and double submits crash.
+            // do, before a restart check wipes what the first one made. Doing the same thing twice is where duplicate
+            // keys and double submits crash.
             if (changedHere && lastKeys.size == 2 && lastKeys[0].startsWith("type:") && lastKeys[1].startsWith("tap:") && replayedOn.add(sig)) {
                 replay.addAll(lastKeys)
             }
+            // Not between typing and submitting: a restart there would wipe what the user was about to send.
+            val killing = stack.isNotEmpty() && replay.isEmpty() && changedHere &&
+                lastKeys.lastOrNull()?.startsWith("type:") != true && killedOn.add(sig)
+            val rotating = !killing && stack.isNotEmpty() && replay.isEmpty() &&
+                (sig !in rotatedOn || (changedHere && rotatedOn.getValue(sig) < 3) || actions % 10 == 9)
             // A field is known by its place on the screen: its label is its text, which typing changes.
             fields = es.filter { it.setText != null }
             next = if (rotating || killing) null else generateSequence { replay.removeFirstOrNull() }.firstNotNullOfOrNull { key ->
@@ -315,11 +321,15 @@ class NoemuDriver {
                 ?: fields.withIndex().firstOrNull { "type:#${it.index}" !in done }?.let { "type:#${it.index}" to it.value }
                 // After typing, submit it, as a user would.
                 ?: es.takeIf { lastKeys.lastOrNull()?.startsWith("type:") == true }
-                    ?.firstOrNull { it.click != null && "tap:${it.label}" !in done && SUBMIT.matches(it.label) }?.let { "tap:${it.label}" to it }
+                    ?.filter { it.click != null && "tap:${it.label}" !in done && submitRank(it.label) >= 0 }
+                    ?.minByOrNull { submitRank(it.label) }?.let { "tap:${it.label}" to it }
                 ?: es.filter { it.click != null && "tap:${it.label}" !in done }.randomOrNull(random)?.let { "tap:${it.label}" to it }
             lastSig = sig
             lastContent = content
             acted = !rotating && !killing && next != null
+            // Every decision, for whoever wants to see how the crawl went: .gradle/noemu/crawl.log.
+            crawlLog.appendText("${actions} ${es.firstOrNull()?.let { onActivity { a -> a.javaClass.simpleName } }} " +
+                "changed=$changedHere ${if (killing) "kill" else if (rotating) "rotate" else next?.first ?: "back"} replay=${replay.toList()}\n")
             chosen = next
             val outcome = runCatching {
                 if (killing) {
@@ -336,7 +346,6 @@ class NoemuDriver {
                             "with TransactionTooLargeException\n  after: ${path.takeLast(8).joinToString(" > ")}"
                     }
                 } else if (rotating) {
-                    lastKeys = emptyList()
                     // A rotation there and back: the activity is rebuilt twice from its saved state (and once with
                     // the other orientation's layouts, where many crashes hide). Back in the first orientation the
                     // screen should be what it was; what changed is state the app forgot to save.
@@ -449,7 +458,12 @@ class NoemuDriver {
     }
 
     private val TYPED = "noemu"
-    private val SUBMIT = Regex("(?i)\\s*(send|save|add|ok|done|submit|post|create|search|go|next|confirm|apply)\\b.*")
+    /** How surely a button submits what was typed: lower is surer, -1 not at all. */
+    private fun submitRank(label: String): Int {
+        val word = label.trim().substringBefore(' ').lowercase()
+        return listOf("send", "save", "submit", "post", "done", "ok", "add", "create", "confirm", "apply", "next", "go", "search")
+            .indexOf(word)
+    }
 
     private var landscape = false
 

@@ -91,7 +91,7 @@ noemu tap "Sign in"       # or by label
 noemu type 2 "hello@example.com"
 noemu scroll down | noemu back | noemu rotate | noemu kill | noemu leaks | noemu wait 2000
 noemu shot out.png | noemu logs
-noemu crawl 100 [MINUTES]
+noemu crawl 100 [MINUTES]   # every decision it takes goes to .gradle/noemu/crawl.log
 noemu stop
 ```
 
