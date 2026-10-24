@@ -111,6 +111,11 @@ On six Jetsnack tasks (features and bug reports), an agent with noemu and one wi
 and say so ("after I tapped 'Clear cart', the header read 'Order (0 items)'"), where the other could only write "I haven't
 seen it on screen".
 
+## Check it yourself
+
+`python bench/reproduce.py WORKDIR` clones the apps at pinned commits and replays every bug above with fixed steps:
+8 of 8 reproduced ([results, and a second reviewer's reading of the upstream code](bench/REPRODUCED.md)).
+
 ## Next to the usual tools
 
 [Measured in a cloud container](bench/COMPARISON.md): the Android Emulator refuses to start there (no KVM), so every
@@ -122,9 +127,13 @@ noemu found; an agent reading noemu's screen text spends 3.5-6x fewer tokens per
 - **Agent tools that drive Android** ([android-mcp](https://github.com/remymazmanian/android-mcp),
   [Android-MCP](https://github.com/CursorTouch/Android-MCP), [looktap](https://github.com/lakpriya1s/looktap)) all need
   a device, an emulator or a cloud phone.
+- **Compose previews on the JVM.** [compose-ai-tools](https://klibs.io/project/yschimke/compose-ai-tools) renders
+  Compose `@Preview`s through Robolectric for agents, clicks included, and Android Studio's interactive preview runs one
+  composable on layoutlib. Both work at the level of a preview: no activities, navigation, saved state or rotation.
 - **Robolectric and [Roborazzi](https://github.com/takahirom/roborazzi)** run app code on the JVM, in tests you write
   in advance. Back in 2014, [Jake Wharton wrote](https://jakewharton.com/android-needs-a-simulator/) that neither
-  Robolectric nor layoutlib "is suited to running an application during development"; noemu is that application runner.
+  Robolectric nor layoutlib "is suited to running an application during development". We found no tool that runs a
+  whole, unmodified app (its activities, navigation, rotation and process death) interactively on the JVM.
 - **Research tools for rotation and data-loss bugs** ([RotDroid](https://arxiv.org/abs/2608.25425),
   [iFixDataloss](https://arxiv.org/abs/2209.08719), DDLDroid, LiveDroid) found hundreds of such bugs in real apps, with
   emulators, instrumentation or a fine-tuned vision model. noemu's check is plainer (the screen before and after) and
