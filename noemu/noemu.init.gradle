@@ -1,0 +1,29 @@
+// noemu: adds a Robolectric driver to one app module for this build only. Nothing in the project changes.
+def target = System.getProperty("noemu.module", ":app")
+def driver = System.getProperty("noemu.driver")
+def configure = { Project p ->
+    if (p.path != target) return
+    p.plugins.withId("com.android.application") {
+        p.android.testOptions.unitTests.includeAndroidResources = true
+        println("noemu: adding $driver/driver to ${p.path} test sources")
+        p.android.sourceSets.test.java.srcDir("$driver/driver")
+        p.android.sourceSets.test.kotlin.srcDir("$driver/driver")
+        p.dependencies {
+            testImplementation "org.robolectric:robolectric:4.16"
+            testImplementation "androidx.test:core-ktx:1.6.1"
+            testImplementation "androidx.test.ext:junit:1.2.1"
+            testImplementation "junit:junit:4.13.2"
+            testImplementation "com.squareup.leakcanary:shark-android:2.14"  // LeakCanary's heap analysis, for leak paths
+        }
+        p.tasks.withType(Test).configureEach { t ->
+            t.outputs.upToDateWhen { false }
+            t.maxHeapSize = "3g"
+            t.testLogging.showStandardStreams = true
+            ["noemu.port", "noemu.out", "noemu.activity", "noemu.data"].each { k -> if (System.getProperty(k)) t.systemProperty(k, System.getProperty(k)) }
+            t.jvmArgs("--add-opens=java.base/jdk.internal.access=ALL-UNNAMED")
+        }
+    }
+}
+// Projects with isolated projects on (org.gradle.isolated-projects) forbid allprojects; lifecycle hooks (Gradle 8.8+)
+// work either way.
+if (gradle.metaClass.respondsTo(gradle, "getLifecycle")) gradle.lifecycle.beforeProject(configure) else gradle.allprojects(configure)

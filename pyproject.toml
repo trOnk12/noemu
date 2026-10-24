@@ -1,0 +1,22 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "noemu"
+version = "0.1.0"
+description = "Run your Android app with no emulator, drive it from the terminal, and crawl it for crashes and lost state."
+readme = "README.md"
+requires-python = ">=3.10"
+license = { text = "MIT" }
+dependencies = []
+keywords = ["android", "robolectric", "jetpack-compose", "testing", "ai-agents", "emulator"]
+
+[project.scripts]
+noemu = "noemu.cli:main"
+
+[tool.setuptools]
+packages = ["noemu"]
+
+[tool.setuptools.package-data]
+noemu = ["noemu.init.gradle", "driver/*.kt"]
