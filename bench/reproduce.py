@@ -74,6 +74,14 @@ def jetsnack_search_rotation(s: Session) -> str:
     return "" if "field cupcake" not in out else "the query survived the rotation"
 
 
+def search_lost_on_rotation(s: Session) -> str:
+    out = s("type", s.field(s("screen")), "cupcake")
+    if "cupcake" not in out:
+        return "typing did not reach the search field"
+    out = s("rotate", "2")
+    return "" if "cupcake" not in out else "the query survived the rotation"
+
+
 def calendar_stacks_on_rotation(s: Session) -> str:
     before = elements(s("screen"))
     after = elements(s("rotate", "2"))
@@ -143,6 +151,10 @@ CASES = [
          SAMPLES, "0bc770fd", "Jetchat", run=jetchat_same_message_twice),
     Case("jetsnack-search-rotation", "Jetsnack (Google sample) loses the search query on rotation",
          SAMPLES, "0bc770fd", "Jetsnack", run=jetsnack_search_rotation),
+    Case("reply-search-rotation", "Reply (Google sample) loses the search query on rotation",
+         SAMPLES, "0bc770fd", "Reply", run=search_lost_on_rotation),
+    Case("jetcaster-search-rotation", "Jetcaster (Google sample) loses the search query on rotation",
+         SAMPLES, "0bc770fd", "Jetcaster", start=["--module", ":mobile"], run=search_lost_on_rotation),
     Case("calendar-644-before", "Fossify Calendar before #1041: each rotation stacks the month view again",
          "https://github.com/FossifyOrg/Calendar", "6b4528f24", task="testFossDebugUnitTest", run=calendar_stacks_on_rotation),
     Case("calendar-644-after", "Fossify Calendar with the fix: no stacking",

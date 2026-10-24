@@ -586,8 +586,11 @@ class NoemuDriver {
     /** Leak paths of destroyed activities in a heap dump: (path, activity class, through the app's own code). */
     private fun leakTraces(): List<Triple<String, String, Boolean>> {
         val file = File(out, "heap.hprof").apply { delete() }
-        java.lang.management.ManagementFactory.getPlatformMXBean(com.sun.management.HotSpotDiagnosticMXBean::class.java)
-            .dumpHeap(file.path, true)
+        // By reflection: projects that compile tests against android.jar alone don't see the JDK's management API.
+        val bean = Class.forName("com.sun.management.HotSpotDiagnosticMXBean")
+        val mx = Class.forName("java.lang.management.ManagementFactory")
+            .getMethod("getPlatformMXBean", Class::class.java).invoke(null, bean)
+        bean.getMethod("dumpHeap", String::class.java, Boolean::class.javaPrimitiveType).invoke(mx, file.path, true)
         try {
             val destroyed = object : shark.FilteringLeakingObjectFinder.LeakingObjectFilter {
                 override fun isLeakingObject(heapObject: shark.HeapObject) = heapObject is shark.HeapObject.HeapInstance &&
