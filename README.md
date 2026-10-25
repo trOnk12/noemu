@@ -102,6 +102,7 @@ noemu stop
 | --- | --- | --- |
 | Jetsnack (android/compose-samples) | Compose | 31 s |
 | JetNews (android/compose-samples) | Compose | 75 s first build |
+| JetLagged (android/compose-samples) | Compose, AGSL shaders (`RuntimeShader`) | 13 s |
 | Now in Android | Compose, Hilt, Room, WorkManager, Firebase, dialogs, Gradle isolated projects | 93 s first build |
 | Fossify Notes | Views (XML), splash + several activities, Room, dialogs | 36 s |
 
@@ -142,7 +143,9 @@ noemu found; an agent reading noemu's screen text spends 3.5-6x fewer tokens per
 
 ## Limits
 
-- It is Robolectric, not a device: no GPU, no camera, no real sensors; rendering is close, not pixel-identical.
+- It is Robolectric, not a device: no GPU (shaders are drawn on the CPU), no camera, no real sensors; rendering is
+  close, not pixel-identical.
+- Needs a JDK 17 or newer, plus a JDK 21 installed when the build runs on 17 (Gradle finds it).
 - WorkManager work that waits on constraints doesn't run on its own yet.
 - It grants the app's permissions and "all files access" up front, as a user would at the first prompt; a crawl with
   `--data` can save to that file.

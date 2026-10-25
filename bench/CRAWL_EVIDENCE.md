@@ -73,6 +73,7 @@ look, not as a problem.
 | Fossify Notes | 0 | 0 | 1: Undo gone after typing and rotating | real: `MainActivity` saves no state; the undo history is lost |
 | Fossify File Manager (editor) | 0 | 0 | 1: the open search field gone | same kind as Notes |
 | JetNews | 0 | 0 | 1: the Interests tab no longer selected | not checked |
+| JetLagged (compose-samples `0bc770fd`) | 0 | 0 | 1: the chosen sleep period (6M) back to Week after a background kill | real: `var selectedTab by remember` (`JetLaggedTimeGraph.kt:52`); the activity handles rotation itself, so only the kill shows it |
 | Jetchat, Jetsnack | above | | Jetchat: the open drawer closed | not checked; `rememberDrawerState` is saveable, so likely ours |
 | Google's architecture-samples (to-do app, `ee66e15`) | 0 | 0 | 2: header after rotating; a task after a background kill (likely the list reloading from its database) | not checked |
 | Google's Sunflower (`2a357a3`) | 0 | 0 | 1: the "Added plant to garden" message, which goes away by itself | harmless |
@@ -93,7 +94,10 @@ Each was a false report that is now gone:
 - `Environment.isExternalStorageManager()` threw inside Robolectric's app ops; noemu grants "all files access" as it
   grants the app's other permissions.
 - Music Player crashed at launch: Robolectric connects `bindService` to nothing. noemu binds the app's own services.
-- Apps reading `Build.VERSION.SDK_INT_FULL` crashed on SDK 35; noemu runs SDK 36.
+- Apps reading `Build.VERSION.SDK_INT_FULL` crashed on SDK 35; noemu runs SDK 36, on a JDK 21 that Gradle finds when
+  the build itself runs on 17 (Robolectric needs 21 for SDK 36).
+- Screenshots of apps drawing with shaders (JetLagged's `RuntimeShader` backgrounds) failed: a plain bitmap canvas
+  refuses GPU features. noemu now draws through Android's renderer, as a device does, and the shaders show.
 - Robolectric's `recreate()` can fail after the new activity is up (window focus); noemu ignores only that failure,
   after a broader rule once hid a real app crash.
 - Scrolling, rows cut at the screen edge, clocks and media positions are left out of the rotation comparison; a

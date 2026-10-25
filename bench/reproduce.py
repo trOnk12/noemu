@@ -5,7 +5,7 @@
 
 Each case clones an app at a pinned commit (and, for a "put back" case, re-applies the historical bug as the fix
 commit undoes it), drives it with noemu commands written out below, and checks the output. Nothing is crawled at
-random: the same steps give the same result on every run. Logs go to WORKDIR/logs/CASE.txt. Needs a JDK 17+,
+random: the same steps give the same result on every run. Logs go to WORKDIR/logs/CASE.txt. Needs a JDK 17+ (and a JDK 21, which Gradle finds, when the build runs on 17),
 the Android SDK (ANDROID_HOME) and network for Gradle; NOEMU_GRADLE_ARGS is passed through.
 """
 from __future__ import annotations

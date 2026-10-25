@@ -6,6 +6,11 @@ import android.content.Intent
 import android.content.pm.PackageManager
 import android.graphics.Bitmap
 import android.graphics.Canvas
+import android.graphics.HardwareRenderer
+import android.graphics.PixelFormat
+import android.graphics.RenderNode
+import android.hardware.HardwareBuffer
+import android.media.ImageReader
 import android.graphics.Rect
 import android.view.View
 import android.view.ViewGroup
@@ -699,17 +704,46 @@ class NoemuDriver {
     /** The window as drawn now; apps that always animate never go idle, so don't wait for it. */
     private fun shot(file: File): String = onActivity { activity ->
         val view = activity.window.decorView
-        val bitmap = Bitmap.createBitmap(view.width, view.height, Bitmap.Config.ARGB_8888)
-        val canvas = Canvas(bitmap)
-        view.draw(canvas)
-        for (window in windows().filter { it !== view }) {  // dialogs and popups, dimmed behind like on a device
-            val at = IntArray(2).also { window.getLocationOnScreen(it) }
-            canvas.drawColor(0x66000000)
-            canvas.save(); canvas.translate(at[0].toFloat(), at[1].toFloat()); window.draw(canvas); canvas.restore()
+        val paint: (Canvas) -> Unit = { canvas ->
+            view.draw(canvas)
+            for (window in windows().filter { it !== view }) {  // dialogs and popups, dimmed behind like on a device
+                val at = IntArray(2).also { window.getLocationOnScreen(it) }
+                canvas.drawColor(0x66000000)
+                canvas.save(); canvas.translate(at[0].toFloat(), at[1].toFloat()); window.draw(canvas); canvas.restore()
+            }
+        }
+        // Drawn the way a device draws (a render node, then the renderer), so GPU-only features such as shaders work;
+        // a plain bitmap canvas if that fails.
+        val bitmap = runCatching { rendered(view.width, view.height, paint) }.getOrElse { hw ->
+            runCatching { Bitmap.createBitmap(view.width, view.height, Bitmap.Config.ARGB_8888).also { paint(Canvas(it)) } }
+                .getOrElse { e -> return@onActivity "no screenshot: ${e.message?.take(120)} (rendered: $hw)" }
         }
         file.parentFile?.mkdirs()
         file.outputStream().use { bitmap.compress(Bitmap.CompressFormat.PNG, 100, it) }
         "screenshot ${file.absolutePath}"
+    }
+
+    private fun rendered(width: Int, height: Int, paint: (Canvas) -> Unit): Bitmap {
+        val reader = ImageReader.newInstance(width, height, PixelFormat.RGBA_8888, 1,
+            HardwareBuffer.USAGE_CPU_READ_OFTEN or HardwareBuffer.USAGE_GPU_COLOR_OUTPUT)
+        val renderer = HardwareRenderer()
+        try {
+            val node = RenderNode("noemu").apply { setPosition(0, 0, width, height) }
+            val canvas = node.beginRecording()
+            try { paint(canvas) } finally { node.endRecording() }
+            renderer.setSurface(reader.surface)
+            renderer.setContentRoot(node)
+            renderer.createRenderRequest().setWaitForPresent(true).syncAndDraw()
+            val image = reader.acquireNextImage() ?: error("nothing rendered")
+            image.use {
+                val plane = it.planes[0]
+                val bitmap = Bitmap.createBitmap(plane.rowStride / plane.pixelStride, height, Bitmap.Config.ARGB_8888)
+                bitmap.copyPixelsFromBuffer(plane.buffer)
+                return Bitmap.createBitmap(bitmap, 0, 0, width, height)
+            }
+        } finally {
+            renderer.destroy(); reader.close()
+        }
     }
 
     /** ComponentActivity routes back through its dispatcher (Compose BackHandler, navigation); others the old way. */

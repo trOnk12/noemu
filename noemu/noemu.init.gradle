@@ -21,6 +21,12 @@ def configure = { Project p ->
             t.testLogging.showStandardStreams = true
             ["noemu.port", "noemu.out", "noemu.activity", "noemu.data"].each { k -> if (System.getProperty(k)) t.systemProperty(k, System.getProperty(k)) }
             t.jvmArgs("--add-opens=java.base/jdk.internal.access=ALL-UNNAMED")
+            // Robolectric runs SDK 36 only on Java 21+; on an older test JVM, take an installed JDK 21 (Gradle finds them).
+            def declared = p.extensions.findByType(JavaPluginExtension)?.toolchain?.languageVersion?.getOrNull()
+            def version = declared ? declared.asInt() : (JavaVersion.current().majorVersion as int)
+            if (version < 21) {
+                t.javaLauncher.set(p.extensions.getByType(JavaToolchainService).launcherFor { it.languageVersion.set(JavaLanguageVersion.of(21)) })
+            }
         }
     }
 }
