@@ -18,6 +18,8 @@ Everything below ran in a cloud container with no emulator, with the final drive
 | --- | --- | --- |
 | Jetchat | crash: `IllegalArgumentException: Key "me-8:30 PM-noemu" was already used` (send the same message twice) | message ids are `"$author-$timestamp-$content"` since `f81c4b73` "Dont use UUID", and the timestamp of a sent message is a fixed string (`R.string.now`, "8:30 PM") |
 | Jetsnack | typed text lost: the search query is gone after a rotation | `rememberSearchState` holds the query in `remember`, not `rememberSaveable` (`Search.kt:123`) |
+| Reply | typed text lost: the search query is gone after a rotation | `var query by remember { mutableStateOf("") }` (`ReplyAppBars.kt:58`) |
+| Jetcaster | typed text lost: the search query is gone after a rotation | `var queryText by remember { mutableStateOf("") }` (`Home.kt:303`) |
 | Jetsnack | worth a look: "SEE LESS" back to "SEE MORE" after a rotation | `var seeMore by remember { mutableStateOf(true) }` (`SnackDetail.kt:313`) |
 
 The Jetchat crash needs the same text sent twice: the crawl replays a type-and-submit that changed the screen, and
@@ -72,6 +74,8 @@ look, not as a problem.
 | Fossify File Manager (editor) | 0 | 0 | 1: the open search field gone | same kind as Notes |
 | JetNews | 0 | 0 | 1: the Interests tab no longer selected | not checked |
 | Jetchat, Jetsnack | above | | Jetchat: the open drawer closed | not checked; `rememberDrawerState` is saveable, so likely ours |
+| Google's architecture-samples (to-do app, `ee66e15`) | 0 | 0 | 2: header after rotating; a task after a background kill (likely the list reloading from its database) | not checked |
+| Google's Sunflower (`2a357a3`) | 0 | 0 | 1: the "Added plant to garden" message, which goes away by itself | harmless |
 | Read You (Ashinch/ReadYou `d2b979c`) | 0 | 0 | 2: an icon after rotating; another screen after a background kill | not checked |
 
 The search bar: in Fossify Commons' `MySearchMenu`, `isSearchOpen` isn't saved, and the focus listener that reopens

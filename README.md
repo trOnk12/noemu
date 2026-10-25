@@ -68,8 +68,9 @@ stopped at its 10-minute budget). The release with the fix shows no stacking. Fa
 GPU-only shader, say) are listed apart, as not app bugs.
 
 [What the crawl found on real apps](bench/CRAWL_EVIDENCE.md): in Google's own Compose samples, a crash in Jetchat
-(send the same message twice) and a search query Jetsnack loses on rotation; five historical bugs from Fossify Calendar,
-File Manager, Calculator and Notes, none reported on the fixed code; no crashes on today's Fossify apps.
+(send the same message twice) and a search query that Jetsnack, Reply and Jetcaster each lose on rotation; five
+historical bugs from Fossify Calendar, File Manager, Calculator and Notes, none reported on the fixed code; no crashes on
+today's Fossify apps.
 
 ## Install
 
@@ -114,7 +115,7 @@ seen it on screen".
 ## Check it yourself
 
 `python bench/reproduce.py WORKDIR` clones the apps at pinned commits and replays every bug above with fixed steps:
-8 of 8 reproduced ([results, and a second reviewer's reading of the upstream code](bench/REPRODUCED.md)).
+10 of 10 reproduced ([results, and a second reviewer's reading of the upstream code](bench/REPRODUCED.md)).
 
 ## Next to the usual tools
 
