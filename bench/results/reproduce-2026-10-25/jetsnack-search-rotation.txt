@@ -1,0 +1,101 @@
+$ noemu start --task testDebugUnitTest
+noemu: building and starting the app (log: .gradle/noemu/gradle.log)
+noemu: app running (50s)
+
+activity MainActivity
+[0] list (no label)  @616,1252  (scroll)
+[1] list (no label)  @616,252  (scroll)
+[2] button Filters  @108,252  (tap)
+[3] button Organic [off]  @335,252  (tap)
+[4] button Gluten-free [off]  @653,252  (tap)
+[5] button Dairy-free [off]  @991,252  (tap)
+[6] button Sweet [off]  @1199,252  (tap)
+[7] text Android's picks  @307,420
+[8] button (no label)  @1161,420  (tap)
+[9] list (no label)  @616,903  (scroll)
+[10] button Cupcake A tag line  @327,879  (tap)
+[11] button Donut A tag line  @885,879  (tap)
+[12] button Eclair A tag line  @1210,879  (tap)
+[13] text Popular on Jetsnack  @388,1392
+[14] button (no label)  @1161,1392  (tap)
+[15] list (no label)  @616,1733  (scroll)
+[16] button Chips  @252,1721  (tap)
+[17] button Pretzels  @684,1721  (tap)
+[18] button Smoothies  @1072,1721  (tap)
+[19] text WFH favourites  @310,2080
+[20] button (no label)  @1161,2080  (tap)
+[21] list (no label)  @616,2334  (scroll)
+[22] button Cupcake A tag line  @327,2334  (tap)
+[23] button Donut A tag line  @885,2334  (tap)
+[24] button Eclair A tag line  @1210,2334  (tap)
+[25] text Delivery to 1600 Amphitheater Way  @568,96
+[26] button Select delivery address  @1161,96  (tap)
+[27] button HOME [selected]  @246,2589  (tap)
+[28] button SEARCH  @615,2589  (tap)
+[29] button MY CART  @861,2589  (tap)
+[30] button PROFILE  @1107,2589  (tap)
+screenshot /tmp/claude-0/repro/src/compose-samples-0bc770fd/Jetsnack/.gradle/noemu/screen.png
+
+$ noemu tap SEARCH
+tapped "SEARCH"
+activity MainActivity
+[0] image Perform search  @421,84
+[1] text Search Jetsnack  @664,84
+[2] field (no label)  @544,84  (tap, type)
+[3] list (no label)  @616,1338  (scroll)
+[4] text Categories  @238,255
+[5] button Chips & crackers  @332,542  (tap)
+[6] button Fruit snacks  @900,542  (tap)
+[7] button Desserts  @332,949  (tap)
+[8] button Nuts  @900,949  (tap)
+[9] text Lifestyles  @215,1249
+[10] button Organic  @332,1536  (tap)
+[11] button Gluten Free  @900,1536  (tap)
+[12] button Paleo  @332,1943  (tap)
+[13] button Vegan  @900,1943  (tap)
+[14] button Vegetarian  @332,2338  (tap)
+[15] button Whole30  @900,2338  (tap)
+[16] button HOME  @123,2589  (tap)
+[17] button SEARCH [selected]  @492,2589  (tap)
+[18] button MY CART  @861,2589  (tap)
+[19] button PROFILE  @1107,2589  (tap)
+screenshot /tmp/claude-0/repro/src/compose-samples-0bc770fd/Jetsnack/.gradle/noemu/screen.png
+
+$ noemu type 2 cupcake
+typed into ""
+activity MainActivity
+[0] field cupcake  @544,84  (tap, type)
+[1] button HOME  @123,2589  (tap)
+[2] button SEARCH [selected]  @492,2589  (tap)
+[3] button MY CART  @861,2589  (tap)
+[4] button PROFILE  @1107,2589  (tap)
+screenshot /tmp/claude-0/repro/src/compose-samples-0bc770fd/Jetsnack/.gradle/noemu/screen.png
+
+$ noemu rotate 2
+now portrait
+activity MainActivity
+[0] image Perform search  @421,84
+[1] text Search Jetsnack  @664,84
+[2] field (no label)  @544,84  (tap, type)
+[3] list (no label)  @616,1338  (scroll)
+[4] text Categories  @238,255
+[5] button Chips & crackers  @332,542  (tap)
+[6] button Fruit snacks  @900,542  (tap)
+[7] button Desserts  @332,949  (tap)
+[8] button Nuts  @900,949  (tap)
+[9] text Lifestyles  @215,1249
+[10] button Organic  @332,1536  (tap)
+[11] button Gluten Free  @900,1536  (tap)
+[12] button Paleo  @332,1943  (tap)
+[13] button Vegan  @900,1943  (tap)
+[14] button Vegetarian  @332,2338  (tap)
+[15] button Whole30  @900,2338  (tap)
+[16] button HOME  @123,2589  (tap)
+[17] button SEARCH [selected]  @492,2589  (tap)
+[18] button MY CART  @861,2589  (tap)
+[19] button PROFILE  @1107,2589  (tap)
+screenshot /tmp/claude-0/repro/src/compose-samples-0bc770fd/Jetsnack/.gradle/noemu/screen.png
+
+$ noemu stop
+bye
+

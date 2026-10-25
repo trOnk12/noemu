@@ -1,0 +1,54 @@
+$ noemu start --task testFossDebugUnitTest --activity org.fossify.filemanager.activities.ReadTextActivity --data file:///tmp/claude-0/repro/list.txt
+noemu: building and starting the app (log: .gradle/noemu/gradle.log)
+noemu: app running (22s)
+
+activity ReadTextActivity
+[0] text list.txt  @267,95
+[1] button Search  @897,96  (tap)
+[2] button Save  @1041,96  (tap)
+[3] button More options  @1173,96  (tap)
+[4] button Back  @84,96  (tap)
+[5] field Shopping list
+milk
+  @616,295  (tap, type)
+screenshot /tmp/claude-0/repro/src/File-Manager-ef7524c0/.gradle/noemu/screen.png
+
+$ noemu screen
+activity ReadTextActivity
+[0] text list.txt  @267,95
+[1] button Search  @897,96  (tap)
+[2] button Save  @1041,96  (tap)
+[3] button More options  @1173,96  (tap)
+[4] button Back  @84,96  (tap)
+[5] field Shopping list
+milk
+  @616,295  (tap, type)
+screenshot /tmp/claude-0/repro/src/File-Manager-ef7524c0/.gradle/noemu/screen.png
+
+$ noemu type 5 my unsaved edit
+typed into "Shopping list
+milk
+"
+activity ReadTextActivity
+[0] text list.txt  @267,95
+[1] button Search  @897,96  (tap)
+[2] button Save  @1041,96  (tap)
+[3] button More options  @1173,96  (tap)
+[4] button Back  @84,96  (tap)
+[5] field my unsaved edit  @616,245  (tap, type)
+screenshot /tmp/claude-0/repro/src/File-Manager-ef7524c0/.gradle/noemu/screen.png
+
+$ noemu rotate 2
+now portrait
+activity ReadTextActivity
+[0] text list.txt  @267,95
+[1] button Search  @897,96  (tap)
+[2] button Save  @1041,96  (tap)
+[3] button More options  @1173,96  (tap)
+[4] button Back  @84,96  (tap)
+[5] field my unsaved edit  @616,245  (tap, type)
+screenshot /tmp/claude-0/repro/src/File-Manager-ef7524c0/.gradle/noemu/screen.png
+
+$ noemu stop
+bye
+

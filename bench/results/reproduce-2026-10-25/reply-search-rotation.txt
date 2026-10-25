@@ -1,0 +1,88 @@
+$ noemu start --task testDebugUnitTest
+noemu: building and starting the app (log: .gradle/noemu/gradle.log)
+noemu: app running (23s)
+
+activity MainActivity
+[0] list (no label)  @616,1336  (scroll)
+[1] button Google 20 mins ago Package shipped! Cucumber Mask Facial has shipped.
+
+Keep an e  @616,498  (tap)
+[2] button Ali 40 mins ago Brunch this weekend? I'll be in your neighborhood doing errands   @616,1015  (tap)
+[3] button Allison 1 hour ago Bonjour from Paris Here are some great shots from my trip...  @616,1501  (tap)
+[4] button Kim 2 hours ago High school reunion? Hi friends,
+
+I was at the grocery store on   @616,1986  (tap)
+[5] button Trevor 2 hours ago Brazil trip Thought we might be able to go over some details   @616,2345  (tap)
+[6] field Search Search Profile Search emails  @616,132  (tap, type)
+[7] button Compose  @985,2301  (tap)
+[8] tab Inbox [selected]  @145,2553  (tap)
+[9] tab Articles  @460,2553  (tap)
+[10] tab Direct Messages  @774,2553  (tap)
+[11] tab Groups  @1088,2553  (tap)
+screenshot /tmp/claude-0/repro/src/compose-samples-0bc770fd/Reply/.gradle/noemu/screen.png
+
+$ noemu screen
+activity MainActivity
+[0] list (no label)  @616,1336  (scroll)
+[1] button Google 20 mins ago Package shipped! Cucumber Mask Facial has shipped.
+
+Keep an e  @616,498  (tap)
+[2] button Ali 40 mins ago Brunch this weekend? I'll be in your neighborhood doing errands   @616,1015  (tap)
+[3] button Allison 1 hour ago Bonjour from Paris Here are some great shots from my trip...  @616,1501  (tap)
+[4] button Kim 2 hours ago High school reunion? Hi friends,
+
+I was at the grocery store on   @616,1986  (tap)
+[5] button Trevor 2 hours ago Brazil trip Thought we might be able to go over some details   @616,2345  (tap)
+[6] field Search Search Profile Search emails  @616,132  (tap, type)
+[7] button Compose  @985,2301  (tap)
+[8] tab Inbox [selected]  @145,2553  (tap)
+[9] tab Articles  @460,2553  (tap)
+[10] tab Direct Messages  @774,2553  (tap)
+[11] tab Groups  @1088,2553  (tap)
+screenshot /tmp/claude-0/repro/src/compose-samples-0bc770fd/Reply/.gradle/noemu/screen.png
+
+$ noemu type 6 cupcake
+typed into "Search Search Profile Search emails"
+activity MainActivity
+[0] list (no label)  @616,1336  (scroll)
+[1] button Google 20 mins ago Package shipped! Cucumber Mask Facial has shipped.
+
+Keep an e  @616,498  (tap)
+[2] button Ali 40 mins ago Brunch this weekend? I'll be in your neighborhood doing errands   @616,1015  (tap)
+[3] button Allison 1 hour ago Bonjour from Paris Here are some great shots from my trip...  @616,1501  (tap)
+[4] button Kim 2 hours ago High school reunion? Hi friends,
+
+I was at the grocery store on   @616,1986  (tap)
+[5] button Trevor 2 hours ago Brazil trip Thought we might be able to go over some details   @616,2345  (tap)
+[6] field Search Search Profile cupcake  @616,132  (tap, type)
+[7] button Compose  @985,2301  (tap)
+[8] tab Inbox [selected]  @145,2553  (tap)
+[9] tab Articles  @460,2553  (tap)
+[10] tab Direct Messages  @774,2553  (tap)
+[11] tab Groups  @1088,2553  (tap)
+screenshot /tmp/claude-0/repro/src/compose-samples-0bc770fd/Reply/.gradle/noemu/screen.png
+
+$ noemu rotate 2
+now portrait
+activity MainActivity
+[0] list (no label)  @616,1336  (scroll)
+[1] button Google 20 mins ago Package shipped! Cucumber Mask Facial has shipped.
+
+Keep an e  @616,498  (tap)
+[2] button Ali 40 mins ago Brunch this weekend? I'll be in your neighborhood doing errands   @616,1015  (tap)
+[3] button Allison 1 hour ago Bonjour from Paris Here are some great shots from my trip...  @616,1501  (tap)
+[4] button Kim 2 hours ago High school reunion? Hi friends,
+
+I was at the grocery store on   @616,1986  (tap)
+[5] button Trevor 2 hours ago Brazil trip Thought we might be able to go over some details   @616,2345  (tap)
+[6] field Search Search Profile Search emails  @616,132  (tap, type)
+[7] button Compose  @985,2301  (tap)
+[8] tab Inbox [selected]  @145,2553  (tap)
+[9] tab Articles  @460,2553  (tap)
+[10] tab Direct Messages  @774,2553  (tap)
+[11] tab Groups  @1088,2553  (tap)
+screenshot /tmp/claude-0/repro/src/compose-samples-0bc770fd/Reply/.gradle/noemu/screen.png
+
+$ noemu stop
+bye
+

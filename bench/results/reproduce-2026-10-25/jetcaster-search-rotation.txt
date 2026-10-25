@@ -1,0 +1,46 @@
+$ noemu start --task testDebugUnitTest --module :mobile
+noemu: building and starting the app (log: .gradle/noemu/gradle.log)
+noemu: app running (71s)
+
+activity MainActivity
+[0] list (no label)  @616,1462  (scroll)
+[1] field Search Account Search for a podcast  @616,132  (tap, type)
+screenshot /tmp/claude-0/repro/src/compose-samples-0bc770fd/Jetcaster/.gradle/noemu/screen.png
+
+$ noemu screen
+activity MainActivity
+[0] list (no label)  @616,1462  (scroll)
+[1] field Search Account Search for a podcast  @616,132  (tap, type)
+screenshot /tmp/claude-0/repro/src/compose-samples-0bc770fd/Jetcaster/.gradle/noemu/screen.png
+
+$ noemu type 1 cupcake
+typed into "Search Account Search for a podcast"
+activity MainActivity
+[0] list (no label)  @616,1462  (scroll)
+[1] field Search Account cupcake  @616,132  (tap, type)
+screenshot /tmp/claude-0/repro/src/compose-samples-0bc770fd/Jetcaster/.gradle/noemu/screen.png
+
+$ noemu rotate 2
+now portrait
+activity MainActivity
+[0] list (no label)  @616,1456  (scroll)
+[1] list (no label)  @616,360  (scroll)
+[2] checkbox Selected category Society & Culture [selected]  @323,360  (tap)
+[3] checkbox News  @719,360  (tap)
+[4] checkbox Technology  @1028,360  (tap)
+[5] checkbox Science  @1231,360  (tap)
+[6] carousel (no label)  @628,672  (scroll)
+[7] button Reply All  @1032,672  (tap)
+[8] button No Stupid Questions  @216,672  (tap)
+[9] button This American Life  @624,672  (tap)
+[10] button 98. Is Having Children Worth It? No Stupid Questions Oct 25, 2026 • 37 mins  @616,1080  (tap)
+[11] button 489: No Coincidence, No Story! This American Life Oct 19, 2026 • 60 mins  @616,1512  (tap)
+[12] button 97. Are Women Really Less Happy Than Men? No Stupid Questions Oct 18, 2026 • 36   @616,1957  (tap)
+[13] button 427: Original Recipe This American Life Oct 12, 2026 • 63 mins  @616,2402  (tap)
+[14] button 96. Why is Chick-fil-A Such a Big Deal? No Stupid Questions Oct 11, 2026 • 27 mi  @616,2657  (tap)
+[15] field Search Account Search for a podcast  @616,132  (tap, type)
+screenshot /tmp/claude-0/repro/src/compose-samples-0bc770fd/Jetcaster/.gradle/noemu/screen.png
+
+$ noemu stop
+bye
+

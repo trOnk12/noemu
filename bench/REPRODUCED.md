@@ -24,7 +24,8 @@ python bench/reproduce.py WORKDIR
 
 10 of 10 (Reply and Jetcaster added on 2026-10-25). Run again on 2026-10-25 with the version that picks a JDK 21 for
 the app's tests and draws screenshots through Android's renderer, installed from GitHub (`cd5093c`) on a JDK 17 build:
-10 of 10. Things went wrong on the way and are recorded here as they happened: runs ran out of disk or hit a Gradle cache
+10 of 10; every command and noemu's full answer from that run are in
+[results/reproduce-2026-10-25](results/reproduce-2026-10-25/). Things went wrong on the way and are recorded here as they happened: runs ran out of disk or hit a Gradle cache
 the full disk had corrupted (re-run on a clean cache, all passed); in the last run the Calendar build was killed for
 memory, with idle Kotlin compiler daemons from earlier builds still holding it (re-run after stopping them, passed); and the check for `calculator-no-leak` first misread noemu's "no destroyed
 activity is still in memory" as a leak (the check was fixed; noemu's answer was right).

@@ -1,0 +1,70 @@
+$ noemu start --task testFossDebugUnitTest
+noemu: building and starting the app (log: .gradle/noemu/gradle.log)
+noemu: app running (66s)
+
+activity MainActivity
+[0] button History  @897,96  (tap)
+[1] button Unit converter  @1041,96  (tap)
+[2] button More options  @1173,96  (tap)
+[3] text 0  @616,702
+[4] button %  @154,1148  (tap)
+[5] button ^  @463,1148  (tap)
+[6] button √  @771,1148  (tap)
+[7] button ÷  @1079,1148  (tap)
+[8] button 7  @154,1487  (tap)
+[9] button 8  @463,1487  (tap)
+[10] button 9  @771,1487  (tap)
+[11] button ×  @1079,1487  (tap)
+[12] button 4  @154,1826  (tap)
+[13] button 5  @463,1826  (tap)
+[14] button 6  @771,1826  (tap)
+[15] button -  @1079,1826  (tap)
+[16] button 1  @154,2165  (tap)
+[17] button 2  @463,2165  (tap)
+[18] button 3  @771,2165  (tap)
+[19] button +  @1079,2165  (tap)
+[20] button 0  @154,2504  (tap)
+[21] button .  @463,2504  (tap)
+[22] button C  @771,2504  (tap)
+[23] button =  @1079,2504  (tap)
+screenshot /tmp/claude-0/repro/src/Calculator-48ea1b3/.gradle/noemu/screen.png
+
+$ noemu rotate 2
+now portrait
+activity MainActivity
+[0] button History  @897,96  (tap)
+[1] button Unit converter  @1041,96  (tap)
+[2] button More options  @1173,96  (tap)
+[3] text 0  @616,702
+[4] button %  @154,1148  (tap)
+[5] button ^  @463,1148  (tap)
+[6] button √  @771,1148  (tap)
+[7] button ÷  @1079,1148  (tap)
+[8] button 7  @154,1487  (tap)
+[9] button 8  @463,1487  (tap)
+[10] button 9  @771,1487  (tap)
+[11] button ×  @1079,1487  (tap)
+[12] button 4  @154,1826  (tap)
+[13] button 5  @463,1826  (tap)
+[14] button 6  @771,1826  (tap)
+[15] button -  @1079,1826  (tap)
+[16] button 1  @154,2165  (tap)
+[17] button 2  @463,2165  (tap)
+[18] button 3  @771,2165  (tap)
+[19] button +  @1079,2165  (tap)
+[20] button 0  @154,2504  (tap)
+[21] button .  @463,2504  (tap)
+[22] button C  @771,2504  (tap)
+[23] button =  @1079,2504  (tap)
+screenshot /tmp/claude-0/repro/src/Calculator-48ea1b3/.gradle/noemu/screen.png
+
+$ noemu leaks
+MainActivity still in memory after rotating, held by:
+    org.fossify.math.activities.ThemeChanges.listeners
+    java.util.ArrayList.[0]
+    org.fossify.math.activities.MainActivity$$Lambda+0x00007fc6d4ae7a30.arg$1
+    org.fossify.math.activities.MainActivity
+
+$ noemu stop
+bye
+

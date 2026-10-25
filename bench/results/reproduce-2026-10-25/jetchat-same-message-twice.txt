@@ -1,0 +1,145 @@
+$ noemu start --task testDebugUnitTest
+noemu: building and starting the app (log: .gradle/noemu/gradle.log)
+noemu: app running (50s)
+
+activity NavActivity
+[0] list (no label)  @616,1336  (scroll)
+[1] text Check it out!  @822,2135
+[2] button (no label)  @1122,2134  (tap)
+[3] button Taylor Brooks 8:06 PM  @319,1155  (tap)
+[4] button (no label)  @111,1274  (tap)
+[5] text Here's a demo of the new blur regions feature in action! 🎥  @703,1311
+[6] button Play video  @612,1723  (tap)
+[7] text Today  @616,1021
+[8] text Thank you!🩷  @827,129
+[9] image Attached image  @651,565
+[10] button (no label)  @1122,128  (tap)
+[11] button Open navigation drawer Ali Conors Taylor Brooks John Glenn composers  @235,96  (tap)
+[12] button Search  @993,96  (tap)
+[13] button Information  @1137,96  (tap)
+[14] field Text input  @604,2336  (tap, type, scroll)
+[15] text Send a message  @321,2336
+[16] button Show Emoji selector  @144,2565  (tap)
+[17] button Attach Photo  @300,2565  (tap)
+[18] button Start videochat  @455,2565  (tap)
+[19] button Record voice message  @611,2565  (tap)
+[20] button Format text  @766,2565  (tap)
+[21] button Add attachment  @922,2565  (tap)
+[22] button Send  @1083,2565  (tap)
+screenshot /tmp/claude-0/repro/src/compose-samples-0bc770fd/Jetchat/.gradle/noemu/screen.png
+
+$ noemu type Text input ok
+typed into "Text input"
+activity NavActivity
+[0] list (no label)  @616,1336  (scroll)
+[1] text Check it out!  @822,2135
+[2] button (no label)  @1122,2134  (tap)
+[3] button Taylor Brooks 8:06 PM  @319,1155  (tap)
+[4] button (no label)  @111,1274  (tap)
+[5] text Here's a demo of the new blur regions feature in action! 🎥  @703,1311
+[6] button Play video  @612,1723  (tap)
+[7] text Today  @616,1021
+[8] text Thank you!🩷  @827,129
+[9] image Attached image  @651,565
+[10] button (no label)  @1122,128  (tap)
+[11] button Open navigation drawer Ali Conors Taylor Brooks John Glenn composers  @235,96  (tap)
+[12] button Search  @993,96  (tap)
+[13] button Information  @1137,96  (tap)
+[14] field Text input ok  @604,2336  (tap, type, scroll)
+[15] button Show Emoji selector  @144,2565  (tap)
+[16] button Attach Photo  @300,2565  (tap)
+[17] button Start videochat  @455,2565  (tap)
+[18] button Record voice message  @611,2565  (tap)
+[19] button Format text  @766,2565  (tap)
+[20] button Add attachment  @922,2565  (tap)
+[21] button Send  @1083,2565  (tap)
+screenshot /tmp/claude-0/repro/src/compose-samples-0bc770fd/Jetchat/.gradle/noemu/screen.png
+
+$ noemu tap Send
+tapped "Send"
+activity NavActivity
+[0] list (no label)  @616,1336  (scroll)
+[1] text ok  @935,2135
+[2] text Check it out!  @822,1995
+[3] button (no label)  @1122,1994  (tap)
+[4] text Today  @616,1835
+[5] button Taylor Brooks 8:06 PM  @319,871  (tap)
+[6] button (no label)  @111,990  (tap)
+[7] text Here's a demo of the new blur regions feature in action! 🎥  @703,1027
+[8] button Play video  @612,1439  (tap)
+[9] text Thank you!🩷  @827,8
+[10] image Attached image  @651,425
+[11] button (no label)  @1122,25  (tap)
+[12] button Open navigation drawer Ali Conors Taylor Brooks John Glenn composers  @235,96  (tap)
+[13] button Search  @993,96  (tap)
+[14] button Information  @1137,96  (tap)
+[15] field Text input  @604,2336  (tap, type, scroll)
+[16] button Show Emoji selector  @144,2565  (tap)
+[17] button Attach Photo  @300,2565  (tap)
+[18] button Start videochat  @455,2565  (tap)
+[19] button Record voice message  @611,2565  (tap)
+[20] button Format text  @766,2565  (tap)
+[21] button Add attachment  @922,2565  (tap)
+[22] button Send  @1083,2565  (tap)
+screenshot /tmp/claude-0/repro/src/compose-samples-0bc770fd/Jetchat/.gradle/noemu/screen.png
+
+$ noemu type Text input ok
+typed into "Text input"
+activity NavActivity
+[0] list (no label)  @616,1336  (scroll)
+[1] text ok  @935,2135
+[2] text Check it out!  @822,1995
+[3] button (no label)  @1122,1994  (tap)
+[4] text Today  @616,1835
+[5] button Taylor Brooks 8:06 PM  @319,871  (tap)
+[6] button (no label)  @111,990  (tap)
+[7] text Here's a demo of the new blur regions feature in action! 🎥  @703,1027
+[8] button Play video  @612,1439  (tap)
+[9] text Thank you!🩷  @827,8
+[10] image Attached image  @651,425
+[11] button (no label)  @1122,25  (tap)
+[12] button Open navigation drawer Ali Conors Taylor Brooks John Glenn composers  @235,96  (tap)
+[13] button Search  @993,96  (tap)
+[14] button Information  @1137,96  (tap)
+[15] field Text input ok  @604,2336  (tap, type, scroll)
+[16] button Show Emoji selector  @144,2565  (tap)
+[17] button Attach Photo  @300,2565  (tap)
+[18] button Start videochat  @455,2565  (tap)
+[19] button Record voice message  @611,2565  (tap)
+[20] button Format text  @766,2565  (tap)
+[21] button Add attachment  @922,2565  (tap)
+[22] button Send  @1083,2565  (tap)
+screenshot /tmp/claude-0/repro/src/compose-samples-0bc770fd/Jetchat/.gradle/noemu/screen.png
+
+$ noemu tap Send
+the app crashed: java.lang.IllegalArgumentException: Key "me-8:30 PM-ok" was already used. If you are using LazyColumn/Row please make sure you provide a unique key for each item.
+tapped "Send"
+activity NavActivity
+[0] list (no label)  @616,1336  (scroll)
+[1] text ok  @935,2135
+[2] text Check it out!  @822,1995
+[3] button (no label)  @1122,1994  (tap)
+[4] text Today  @616,1835
+[5] button Taylor Brooks 8:06 PM  @319,871  (tap)
+[6] button (no label)  @111,990  (tap)
+[7] text Here's a demo of the new blur regions feature in action! 🎥  @703,1027
+[8] button Play video  @612,1439  (tap)
+[9] text Thank you!🩷  @827,8
+[10] image Attached image  @651,425
+[11] button (no label)  @1122,25  (tap)
+[12] button Open navigation drawer Ali Conors Taylor Brooks John Glenn composers  @235,96  (tap)
+[13] button Search  @993,96  (tap)
+[14] button Information  @1137,96  (tap)
+[15] field Text input  @604,2336  (tap, type, scroll)
+[16] button Show Emoji selector  @144,2565  (tap)
+[17] button Attach Photo  @300,2565  (tap)
+[18] button Start videochat  @455,2565  (tap)
+[19] button Record voice message  @611,2565  (tap)
+[20] button Format text  @766,2565  (tap)
+[21] button Add attachment  @922,2565  (tap)
+[22] button Send  @1083,2565  (tap)
+screenshot /tmp/claude-0/repro/src/compose-samples-0bc770fd/Jetchat/.gradle/noemu/screen.png
+
+$ noemu stop
+bye
+
