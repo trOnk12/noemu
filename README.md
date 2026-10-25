@@ -1,5 +1,10 @@
 # noemu
 
+> **Status: shelved (2026-10-25).** Robolectric's own [Simulator](https://robolectric.org/simulator/) already runs
+> an app interactively on the JVM, and the crawl's check is known from research. What noemu adds (headless text
+> control for agents, a lifecycle crawl inside your build) did not prove enough on its own. Why, what it found, and
+> what we learnt: [CONCLUSION.md](CONCLUSION.md). It still works; the known gaps are listed there and under Limits.
+
 **Run your Android app and drive it, with no emulator.** For coding agents in sandboxes that can't run one, and for
 anyone who wants to see a screen in seconds instead of booting a device. `noemu crawl` then taps through the app on its
 own and reports crashes and what a rotation loses.
@@ -115,8 +120,8 @@ seen it on screen".
 
 ## Check it yourself
 
-`python bench/reproduce.py WORKDIR` clones the apps at pinned commits and replays every bug above with fixed steps:
-10 of 10 reproduced ([results, and a second reviewer's reading of the upstream code](bench/REPRODUCED.md)).
+`python bench/reproduce.py WORKDIR` clones the apps at pinned commits and replays, with fixed noemu commands (not a
+crawl), 6 of the bugs above, 1 leak planted for the test and 3 fixed versions that must stay clean: 10 of 10 held ([results, and a second reviewer's reading of the upstream code](bench/REPRODUCED.md)).
 
 ## Next to the usual tools
 
@@ -126,20 +131,21 @@ noemu found; an agent reading noemu's screen text spends 3.5-6x fewer tokens per
 
 ## What else exists
 
-- **Agent tools that drive Android** ([android-mcp](https://github.com/remymazmanian/android-mcp),
-  [Android-MCP](https://github.com/CursorTouch/Android-MCP), [looktap](https://github.com/lakpriya1s/looktap)) all need
-  a device, an emulator or a cloud phone.
-- **Compose previews on the JVM.** [compose-ai-tools](https://klibs.io/project/yschimke/compose-ai-tools) renders
-  Compose `@Preview`s through Robolectric for agents, clicks included, and Android Studio's interactive preview runs one
-  composable on layoutlib. Both work at the level of a preview: no activities, navigation, saved state or rotation.
-- **Robolectric and [Roborazzi](https://github.com/takahirom/roborazzi)** run app code on the JVM, in tests you write
-  in advance. Back in 2014, [Jake Wharton wrote](https://jakewharton.com/android-needs-a-simulator/) that neither
-  Robolectric nor layoutlib "is suited to running an application during development". We found no tool that runs a
-  whole, unmodified app (its activities, navigation, rotation and process death) interactively on the JVM.
-- **Research tools for rotation and data-loss bugs** ([RotDroid](https://arxiv.org/abs/2608.25425),
-  [iFixDataloss](https://arxiv.org/abs/2209.08719), DDLDroid, LiveDroid) found hundreds of such bugs in real apps, with
-  emulators, instrumentation or a fine-tuned vision model. noemu's check is plainer (the screen before and after) and
-  runs inside your own Gradle build.
+- **Robolectric's [Simulator](https://robolectric.org/simulator/)** (since Robolectric 4.15, 2025, "highly
+  experimental") runs an app's main activity interactively on the JVM, in a desktop window, from
+  `./gradlew simulate<variant>`. noemu differs in what is around that: no display (numbered screen text for agents),
+  any activity, and the rotate, kill, leak and crawl commands.
+- **Agent tools that drive Android** ([mobile-mcp](https://github.com/mobile-next/mobile-mcp),
+  [android-mcp](https://github.com/remymazmanian/android-mcp), Google's Android CLI for agents, 2026) need a device or
+  an emulator. [compose-ai-tools](https://github.com/yschimke/compose-ai-tools) drives Compose `@Preview`s through
+  Robolectric for agents.
+- **Explorers that check rotation and restarts**: ALARic (ISSTA'18), Quantum (ICST'14), Thor (ISSTA'15) and
+  [DLD](https://arxiv.org/abs/2010.05584) (ISSTA'20) use the same oracle as noemu's crawl (the screen before and after),
+  on devices or emulators; [RotDroid](https://arxiv.org/abs/2608.25425) uses a vision model;
+  [iFixDataloss](https://arxiv.org/abs/2209.08719) finds and patches data loss. DDLDroid (ISSTA'23), KREfinder and
+  LiveDroid find such bugs statically, with no device at all.
+- **Robolectric and [Roborazzi](https://github.com/takahirom/roborazzi)** run app code on the JVM in tests you write;
+  `StateRestorationTester` checks `rememberSaveable` per composable.
 
 ## Limits
 
@@ -149,5 +155,8 @@ noemu found; an agent reading noemu's screen text spends 3.5-6x fewer tokens per
 - WorkManager work that waits on constraints doesn't run on its own yet.
 - It grants the app's permissions and "all files access" up front, as a user would at the first prompt; a crawl with
   `--data` can save to that file.
-- `kill` rebuilds the top activity from its saved state; singletons and caches survive, unlike a real process death.
+- `kill` rebuilds the top activity from its saved state; the Application, singletons, statics and the activities
+  below survive, so it misses the most common real process-death bugs.
+- A crash with no frame from the app's package on the stack (a Compose layout error, a `Parcel` failure in `kill`) can
+  be filed under JVM limits instead of crashes, and taps can reach disabled views (found in review, not fixed).
 - One screen size per session (411x891 dp).
