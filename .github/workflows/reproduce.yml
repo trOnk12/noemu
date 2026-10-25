@@ -1,0 +1,40 @@
+# Replays every bug noemu claims to find (bench/reproduce.py), one job per claim, on GitHub's machines.
+name: reproduce
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths: ["noemu/**", "bench/reproduce.py", ".github/workflows/reproduce.yml"]
+jobs:
+  claim:
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    strategy:
+      fail-fast: false
+      matrix:
+        case:
+          - jetchat-same-message-twice
+          - jetsnack-search-rotation
+          - reply-search-rotation
+          - jetcaster-search-rotation
+          - calendar-644-before
+          - calendar-644-after
+          - file-manager-111-back
+          - file-manager-111-fixed
+          - calculator-listener-leak
+          - calculator-no-leak
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Free disk space for the Android builds
+        run: sudo rm -rf /usr/share/dotnet /opt/ghc /usr/local/.ghcup /usr/local/lib/node_modules
+      - run: pip install .
+      - name: Replay the claim (builds on JDK 17; noemu takes the runner's JDK 21 for Robolectric)
+        run: JAVA_HOME="$JAVA_HOME_17_X64" python bench/reproduce.py "$RUNNER_TEMP/work" ${{ matrix.case }}
+      - if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: log-${{ matrix.case }}
+          path: ${{ runner.temp }}/work/logs/

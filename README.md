@@ -78,7 +78,7 @@ today's Fossify apps.
 pipx install git+https://github.com/trOnk12/noemu
 ```
 
-It needs Python 3.10+, JDK 17+ and what your project already builds with (Android SDK, Gradle wrapper). Robolectric
+It needs Python 3.10+, JDK 17+ (plus a JDK 21 installed when the build runs on 17) and what your project already builds with (Android SDK, Gradle wrapper). Robolectric
 comes in through Gradle, for the run only.
 
 ## Use
