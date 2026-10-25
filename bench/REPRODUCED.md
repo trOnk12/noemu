@@ -22,8 +22,11 @@ python bench/reproduce.py WORKDIR
 | calculator-listener-leak | A listener left on an app-wide object: leak reported with its chain (`ThemeChanges.listeners` → lambda → `MainActivity`) | PASS |
 | calculator-no-leak | Fossify Calculator as shipped: no app leak | PASS |
 
-10 of 10 (Reply and Jetcaster added on 2026-10-25). Things went wrong on the way and are recorded here as they happened: runs ran out of disk or hit a Gradle cache the full disk had
-corrupted (re-run on a clean cache, all passed), and the check for `calculator-no-leak` first misread noemu's "no destroyed
+10 of 10 (Reply and Jetcaster added on 2026-10-25). Run again on 2026-10-25 with the version that picks a JDK 21 for
+the app's tests and draws screenshots through Android's renderer, installed from GitHub (`cd5093c`) on a JDK 17 build:
+10 of 10. Things went wrong on the way and are recorded here as they happened: runs ran out of disk or hit a Gradle cache
+the full disk had corrupted (re-run on a clean cache, all passed); in the last run the Calendar build was killed for
+memory, with idle Kotlin compiler daemons from earlier builds still holding it (re-run after stopping them, passed); and the check for `calculator-no-leak` first misread noemu's "no destroyed
 activity is still in memory" as a leak (the check was fixed; noemu's answer was right).
 
 ## Checked by a second reviewer
