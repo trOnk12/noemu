@@ -54,3 +54,6 @@ first tap on an instance about 1 s slower: a cold JIT).
 An action used to wait until two reads of the screen matched; a running clock never matched, so every tap on the demo
 waited the full 4 s. The settle check now masks digits. Same demo, default settings, `NOEMU_SHOTS=0`: taps answered
 in 627-830 ms (4 taps), each landing (the tapped checkbox selected) while the clock kept running.
+The same change shortened a cold start, which ends by waiting for the first screen to settle: `spawn` with an empty
+pool took 10 s (load average 3.7): Robolectric's Android ready after 6.2 s, the app launched after 9.1 s, settled and
+listening after 9.8 s. Before, the settle step alone ran out its 15 s on this demo.

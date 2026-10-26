@@ -134,7 +134,7 @@ jobs loaded it ([details](bench/FLEET.md)):
 | Spawn from the pool (wake + readable screen) | about 0.4 s |
 | Sleep / wake (state kept) | about 50 ms / 0.4 s |
 | Destroy | under 0.1 s |
-| Full start (refilling the pool) | 25 s on an idle machine; about 50-70 s under load |
+| Full start (refilling the pool, or `spawn` with an empty pool) | about 10 s (Android ready 6 s, app 9 s, settled 10 s); slower under load |
 | Memory per instance | about 0.5 GB; 12 ran at once in 6.4 GB |
 | Tap answered (default settings, `NOEMU_SHOTS=0`) | 0.6-0.8 s, also on a screen with a running clock |
 
