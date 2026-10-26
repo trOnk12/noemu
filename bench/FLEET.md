@@ -63,3 +63,9 @@ listening after 9.8 s. Before, the settle step alone ran out its 15 s on this de
 Same demo, one instance each, after 3 taps (all landing): default JVM 468 MB; `-Xmx512m` 464 MB; serial GC with the
 fast JIT tier only (`-XX:+UseSerialGC -XX:TieredStopAtLevel=1`) 388 MB, the same at `-Xmx384m`. Ready after 9.1-9.7 s
 with those options against 10.3-10.8 s without; taps 0.6-0.7 s either way. They are the fleet's default now.
+
+## Twelve again, with everything above (2026-10-26)
+
+`pool 12` (default settings, `NOEMU_SHOTS=0`): all 12 asleep in the pool after 56 s (before: about 90 s), 4.6 GB
+together, 385-389 MB each (before: 6.4 GB). Then three agents' `spawn` + tap while the pool refilled (load average 13
+on 4 cores): taps answered in 834-928 ms. Nothing new in the shared temporary directory.

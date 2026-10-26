@@ -136,7 +136,7 @@ jobs loaded it ([details](bench/FLEET.md)):
 | Sleep / wake (state kept) | about 50 ms / 0.4 s |
 | Destroy | under 0.1 s |
 | Full start (refilling the pool, or `spawn` with an empty pool) | about 10 s (Android ready 6 s, app 9 s, settled 10 s); slower under load |
-| Memory per instance | about 390 MB (default JVM options); 12 ran at once in 6.4 GB before that change |
+| Memory per instance | about 390 MB; 12 started at once in 56 s and used 4.6 GB together |
 | Tap answered (default settings, `NOEMU_SHOTS=0`) | 0.6-0.8 s, also on a screen with a running clock |
 
 **Kotlin Multiplatform**: point `--module` at the module that applies `com.android.application` (often `:composeApp`
