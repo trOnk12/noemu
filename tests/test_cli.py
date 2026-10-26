@@ -101,6 +101,15 @@ class FleetTest(unittest.TestCase):
             p.wait(timeout=5)
         self.assertEqual(cli.instances(), [])
 
+    def test_destroy_removes_the_instance_s_temporary_app_data(self):
+        d = self.instance("0", "running")
+        data = Path(self.dir.name) / "robolectric-NoemuDriver_serve1" / "com.x-dataDir"
+        data.mkdir(parents=True)
+        (d / "datadir").write_text(str(data))
+        with mock.patch("builtins.print"):
+            cli.main(["destroy", "0"])
+        self.assertFalse(data.parent.exists())
+
     def test_spawn_without_a_build_says_what_to_do(self):
         (cli.STATE / "launch.json").unlink()
         with self.assertRaises(SystemExit) as e:

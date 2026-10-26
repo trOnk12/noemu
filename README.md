@@ -212,4 +212,6 @@ noemu found; an agent reading noemu's screen text spends 3.5-6x fewer tokens per
   be filed under JVM limits instead of crashes, and taps can reach disabled views (found in review, not fixed).
 - One screen size per session (411x891 dp).
 - Fleet: instances run the code of the last `noemu build`; sleep and wake use SIGSTOP/SIGCONT (Linux and macOS, not
-  Windows); `list` shows memory on Linux only; an asleep instance keeps its memory.
+  Windows); `list` shows memory on Linux only; an asleep instance keeps its memory. Each instance unpacks Robolectric's
+  native runtime (about 200 MB) into the temporary directory; `destroy` removes it, but an instance that dies another
+  way (crash, `kill -9`) leaves it behind.

@@ -34,6 +34,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import shutil
 import signal
 import socket
@@ -212,15 +213,27 @@ def signal_to(d: Path, sig: int, state: str) -> None:
     (d / "state").write_text(state)
 
 
+def robolectric_dirs(d: Path) -> set[Path]:
+    """Robolectric's temporary directories this instance uses: the app's data (files, databases, preferences) and
+    its unpacked native runtime (about 200 MB). A killed JVM leaves both behind."""
+    found = set()
+    data = Path((d / "datadir").read_text()) if (d / "datadir").exists() else None
+    found |= {p for p in ([data] + list(data.parents) if data else []) if p.name.startswith("robolectric-")}
+    try:  # what the JVM has mapped (Linux): the native runtime's libraries
+        maps = Path(f"/proc/{(d / 'pid').read_text()}/maps").read_text()
+        found |= {Path(m) for m in set(re.findall(r"(/\S*?/robolectric-[^/\s]+)", maps))}
+    except (OSError, ValueError):
+        pass
+    return found
+
+
 def destroy_one(d: Path) -> None:
+    dirs = robolectric_dirs(d)
     try:
         signal_to(d, signal.SIGKILL, "destroyed")
     except OSError:
         (d / "state").write_text("destroyed")
-    # A killed JVM leaves Robolectric's temporary directory (the app's files, databases, preferences) behind.
-    data = Path((d / "datadir").read_text()) if (d / "datadir").exists() else None
-    root = next((p for p in ([data] + list(data.parents) if data else []) if p.name.startswith("robolectric-")), None)
-    if root:
+    for root in dirs:
         shutil.rmtree(root, ignore_errors=True)
 
 
