@@ -22,8 +22,17 @@ def configure = { Project p ->
             t.outputs.upToDateWhen { false }
             t.maxHeapSize = "3g"
             t.testLogging.showStandardStreams = true
-            ["noemu.port", "noemu.out", "noemu.activity", "noemu.data"].each { k -> if (System.getProperty(k)) t.systemProperty(k, System.getProperty(k)) }
+            ["noemu.port", "noemu.out", "noemu.activity", "noemu.data", "noemu.settle", "noemu.shots"].each { k -> if (System.getProperty(k)) t.systemProperty(k, System.getProperty(k)) }
             t.jvmArgs("--add-opens=java.base/jdk.internal.access=ALL-UNNAMED")
+            // The app JVM's command, so more instances can start from the same build without Gradle (noemu fleet).
+            t.doFirst {
+                def out = System.getProperty("noemu.out")
+                if (out) new File(out, "launch.json").text = groovy.json.JsonOutput.toJson([
+                        java: t.javaLauncher.get().executablePath.asFile.path, jvmArgs: t.allJvmArgs,
+                        classpath: t.classpath.asPath, workingDir: t.workingDir.path])
+                // `noemu build`: compile and record, but don't start the app here.
+                if (System.getProperty("noemu.recordOnly")) throw new StopExecutionException()
+            }
             // Robolectric runs SDK 36 only on Java 21+; on an older test JVM, take an installed JDK 21 (Gradle finds them).
             def declared = p.extensions.findByType(JavaPluginExtension)?.toolchain?.languageVersion?.getOrNull()
             def version = declared ? declared.asInt() : (JavaVersion.current().majorVersion as int)

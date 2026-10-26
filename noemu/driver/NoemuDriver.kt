@@ -60,6 +60,8 @@ class NoemuDriver {
     private val out = File(System.getProperty("noemu.out") ?: ".gradle/noemu").apply { mkdirs() }
 
     @Test fun serve() {
+        val jvmStart = java.lang.management.ManagementFactory.getRuntimeMXBean().startTime
+        println("noemu: android ready after ${System.currentTimeMillis() - jvmStart} ms")
         Thread.setDefaultUncaughtExceptionHandler { t, e ->
             System.err.println("noemu: thread ${t.name} crashed: $e")
             synchronized(backgroundCrashes) { backgroundCrashes += e }
@@ -70,12 +72,14 @@ class NoemuDriver {
         org.robolectric.shadows.ShadowChoreographer.setPaused(true)
         org.robolectric.shadows.ShadowChoreographer.setFrameDelay(Duration.ofMillis(16))
         app = ApplicationProvider.getApplicationContext()
+        File(out, "datadir").writeText(app.dataDir.path)  // so `noemu destroy` can remove it after a hard kill
         launch = System.getProperty("noemu.activity")?.let { Intent().setClassName(app, it) }
             ?: app.packageManager.getLaunchIntentForPackage(app.packageName)
             ?: error("no launcher activity; pass --activity")
         System.getProperty("noemu.data")?.let { launch.setAction(Intent.ACTION_VIEW).setData(android.net.Uri.parse(it)) }
         // A crash at launch is the app's answer to `start`: keep its whole trace where noemu.py prints it.
         runCatching { open(Intent(launch)) }.onFailure { File(out, "crash.txt").writeText(it.stackTraceToString()); throw it }
+        println("noemu: app launched after ${System.currentTimeMillis() - jvmStart} ms")
         code = listOfNotNull(stack.lastOrNull()?.get()?.javaClass?.name, app.javaClass.name.takeUnless { it.startsWith("android.") })
             .map { it.split(".").dropLast(1) }
             .reduce { a, b -> a.zip(b).takeWhile { (x, y) -> x == y }.map { it.first } }
@@ -83,7 +87,7 @@ class NoemuDriver {
         stable(15000)
         val server = ServerSocket(System.getProperty("noemu.port", "0").toInt(), 1, InetAddress.getLoopbackAddress())
         File(out, "port").writeText(server.localPort.toString())
-        println("noemu: listening on ${server.localPort}")
+        println("noemu: listening on ${server.localPort} after ${System.currentTimeMillis() - jvmStart} ms")
         while (true) {
             val socket = server.accept()
             val reader = BufferedReader(InputStreamReader(socket.getInputStream()))
@@ -140,8 +144,9 @@ class NoemuDriver {
             "[$i] ${e.kind} ${e.label.take(80).ifBlank { "(no label)" }}${e.state?.let { " [$it]" } ?: ""}  @${e.bounds.centerX()},${e.bounds.centerY()}" +
                 if (can.isEmpty()) "" else "  (${can.joinToString()})"
         }
-        val shot = shot(File(out, "screen.png"))
-        return "activity $name\n" + lines.joinToString("\n") + "\n" + shot
+        // NOEMU_SHOTS=0: no screenshot after every action (rendering one costs about 0.3 s); `shot` still works.
+        val shot = if (System.getProperty("noemu.shots") == "0") "" else "\n" + shot(File(out, "screen.png"))
+        return "activity $name\n" + lines.joinToString("\n") + shot
     }
 
     private fun collect(activityOnly: Boolean = false): List<Element> {
@@ -673,7 +678,11 @@ class NoemuDriver {
     }
 
     /** Lets the app run until the screen stops changing (same elements twice in a row), at most [maxMs]. */
-    private fun stable(maxMs: Long = 4000) {
+    // How long an action waits for the screen to settle (two unchanged reads); NOEMU_SETTLE_MS shortens it for
+    // screens that never settle (a running clock, an endless animation).
+    private val settleMs = System.getProperty("noemu.settle")?.toLongOrNull() ?: 4000
+
+    private fun stable(maxMs: Long = settleMs) {
         val start = System.currentTimeMillis()
         var last = ""
         var same = 0

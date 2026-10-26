@@ -4,6 +4,9 @@
 > an app interactively on the JVM, and the crawl's check is known from research. What noemu adds (headless text
 > control for agents, a lifecycle crawl inside your build) did not prove enough on its own. Why, what it found, and
 > what we learnt: [CONCLUSION.md](CONCLUSION.md). It still works; the known gaps are listed there and under Limits.
+>
+> **Since 2026-10-26: a fleet for parallel agents.** A developer who caps his coding agents at two emulators asked for
+> app instances an agent can spawn, put to sleep and destroy fast. [Below](#many-instances-for-parallel-agents-fleet).
 
 **Run your Android app and drive it, with no emulator.** For coding agents in sandboxes that can't run one, and for
 anyone who wants to see a screen in seconds instead of booting a device. `noemu crawl` then taps through the app on its
@@ -101,6 +104,54 @@ noemu crawl 100 [MINUTES]   # every decision it takes goes to .gradle/noemu/craw
 noemu stop
 ```
 
+## Many instances for parallel agents (fleet)
+
+Build once; then each instance is one JVM started from the recorded command, with no Gradle and no emulator.
+Instances wait in a pool, asleep (no CPU), so an agent's `spawn` only wakes one.
+
+```bash
+noemu build --module :app          # after every code change (an incremental build here: about 20 s)
+noemu pool 4                       # start 4 and put them to sleep (each pays the full start once)
+noemu spawn                        # -> "ID PORT": a pooled instance woken, or a fresh one if the pool is empty
+NOEMU_ID=ID noemu screen           # every command above works on an instance (or: noemu --id ID tap "Sign in")
+noemu sleep ID | noemu wake ID     # freeze / resume its JVM; the app's state stays
+noemu destroy ID                   # or: noemu destroy all
+noemu list
+```
+
+`spawn` refills the pool in the background. `build` drops pooled instances of the previous build, so an agent never
+gets old code; instances already handed out keep running until destroyed. Each instance has its own app data
+(Robolectric's temporary directory), removed by `destroy`. Settings, per instance at start: `NOEMU_SETTLE_MS` (how long
+an action waits for the screen to settle, default 4000; lower it if a screen never settles, e.g. a running clock),
+`NOEMU_SHOTS=0` (no screenshot after every action), `NOEMU_XMX` (heap, default 1g).
+
+Measured on a Compose Multiplatform app (`androidTarget`) in a 4-core, 16 GB container with no KVM, while other
+jobs loaded it ([details](bench/FLEET.md)):
+
+| | |
+| --- | --- |
+| Spawn from the pool (wake + readable screen) | about 0.4 s |
+| Sleep / wake (state kept) | about 50 ms / 0.4 s |
+| Destroy | under 0.1 s |
+| Full start (refilling the pool) | 25 s on an idle machine; about 50-70 s under load |
+| Memory per instance | about 0.5 GB; 12 ran at once in 6.4 GB |
+| Tap answered, with `NOEMU_SETTLE_MS=1000` | about 1.1 s without screenshots, 1.45 s with |
+
+**Kotlin Multiplatform**: point `--module` at the module that applies `com.android.application` (often `:composeApp`
+or `:androidApp`). Modules testing on the JUnit Platform (`kotlin.test`) are supported. noemu runs the Android
+target only: iOS needs a simulator.
+
+For your agents' instructions (AGENTS.md / CLAUDE.md):
+
+```markdown
+## Running the app without an emulator (noemu)
+- After changing code, `noemu build --module :composeApp`.
+- `noemu spawn` prints `ID PORT`; then `NOEMU_ID=ID noemu screen`, `... tap "Label"`, `... type 2 "text"`,
+  `... back`, `... rotate`. Read the numbered screen text; `... shot out.png` only when you need pixels.
+- When done, `noemu destroy ID`.
+- Use an emulator only for what noemu can't run: Google Play services, camera, WebView, real GPU.
+```
+
 ## Tested on
 
 | App | Stack | Start |
@@ -160,3 +211,5 @@ noemu found; an agent reading noemu's screen text spends 3.5-6x fewer tokens per
 - A crash with no frame from the app's package on the stack (a Compose layout error, a `Parcel` failure in `kill`) can
   be filed under JVM limits instead of crashes, and taps can reach disabled views (found in review, not fixed).
 - One screen size per session (411x891 dp).
+- Fleet: instances run the code of the last `noemu build`; sleep and wake use SIGSTOP/SIGCONT (Linux and macOS, not
+  Windows); `list` shows memory on Linux only; an asleep instance keeps its memory.
