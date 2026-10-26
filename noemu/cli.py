@@ -25,6 +25,7 @@ Many instances for parallel agents (fleet): build once, then start each app JVM 
     noemu destroy ID|all         # end it at once
     noemu list                   # instances: id, state, port, memory
     noemu mcp                    # the same as an MCP server (stdio) for coding agents
+    noemu doctor [--module :app] [--task ...]   # what will stand in the way (reads the project, runs nothing)
 
 NOEMU_GRADLE_ARGS adds arguments to the Gradle command (e.g. an init script for a mirror). NOEMU_SETTLE_MS (default
 4000) caps how long an action waits for the screen to settle (changing numbers, like a clock, don't count).
@@ -328,6 +329,71 @@ def fleet(cmd: str, rest: list[str]) -> int:
     return 0
 
 
+# Doctor ----------------------------------------------------------------------------------------------------------
+
+# Android-only native libraries, and what to do about each on the JVM. Matched against the build files' text.
+NATIVE = [
+    (r"core[-.]?crypto", "Wire core-crypto: add its JVM build, NOEMU_DEPS=com.wire:core-crypto-jvm:<core-crypto version>"),
+    (r"net\.zetetic|sqlcipher", "SQLCipher: Android-only; fine if the app doesn't encrypt its database in debug builds "
+                               "(Wire: off for debug on API 30+)"),
+    (r"com\.wire:avs|\bavs\b", "Wire AVS (calls): Android-only, calls won't work"),
+    (r"\bjna\b", "JNA: loads host libraries; check the artifact ships Linux/macOS ones"),
+    (r"firebase|play[-.]services|\bgms\b", "Google Play services / Firebase: what needs Play services won't work "
+                                          "(sign-in, push, maps tiles); the app itself usually starts"),
+    (r"tensorflow|onnx|media[-.]?pipe", "an on-device ML runtime: Android-only native code"),
+]
+
+
+def doctor(args: list[str]) -> int:
+    """Reads the project (nothing runs) and says what will stand in the way of `noemu build`."""
+    import shutil as sh
+    opts = options(args)
+    ok, warn, bad = [], [], []
+    root = Path(".")
+    (ok if (root / "gradlew").exists() else bad).append("gradlew in this directory" if (root / "gradlew").exists()
+                                                        else "no gradlew here: run from the project root")
+    java_home = os.environ.get("JAVA_HOME")
+    jdks = [p.name for p in Path("/usr/lib/jvm").glob("*")] if Path("/usr/lib/jvm").exists() else []
+    jdks += [p.name for p in Path("/Library/Java/JavaVirtualMachines").glob("*")] \
+        if Path("/Library/Java/JavaVirtualMachines").exists() else []
+    (ok if any("21" in j for j in jdks) or (java_home and "21" in java_home) else warn).append(
+        "a JDK 21 is installed" if any("21" in j for j in jdks) or (java_home and "21" in java_home) else
+        "no JDK 21 found: Robolectric runs SDK 36 only on Java 21+ (Gradle looks for one)")
+    sdk = os.environ.get("ANDROID_HOME") or os.environ.get("ANDROID_SDK_ROOT")
+    props = (root / "local.properties").read_text(errors="replace") if (root / "local.properties").exists() else ""
+    (ok if sdk or "sdk.dir" in props else bad).append(
+        "Android SDK set" if sdk or "sdk.dir" in props else "no Android SDK: set ANDROID_HOME or sdk.dir")
+    module = Path(opts["--module"].strip(":").replace(":", "/"))
+    build_file = next((module / f for f in ("build.gradle.kts", "build.gradle") if (module / f).exists()), None)
+    text = build_file.read_text(errors="replace") if build_file else ""
+    if not build_file:
+        bad.append(f"no build file in {module}/: pass --module (the module that applies com.android.application)")
+    elif not re.search(r"com\.android\.application|androidApplication|android\.application|AndroidApplication", text):
+        warn.append(f"{build_file} doesn't visibly apply com.android.application (a convention plugin may): "
+                    "noemu needs the app module")
+    else:
+        ok.append(f"app module {opts['--module']}")
+    if re.search(r"productFlavors|Flavors", text) and opts["--task"] == "testDebugUnitTest":
+        warn.append("the app has product flavors: pass --task test<Flavor>DebugUnitTest")
+    if "useJUnitPlatform" in text or "junit5" in text.lower():
+        ok.append("JUnit 5 in the module: noemu adds the vintage engine for its JUnit 4 driver")
+    # The module's own build file, and the version catalogs' entries (an entry may be unused: said so).
+    catalogs = "\n".join(p.read_text(errors="replace") for p in list(root.glob("**/libs.versions.toml"))[:4]
+                         if "build" not in p.parts)
+    for pattern, advice in NATIVE:
+        if re.search(pattern, text, re.I):
+            warn.append(advice)
+        elif re.search(pattern, catalogs, re.I):
+            warn.append(advice + " (listed in a version catalog; ignore if the app doesn't use it)")
+    free = sh.disk_usage(".").free // 2**30
+    (ok if free >= 4 else warn).append(f"{free} GB free" + ("" if free >= 4 else
+                                       ": each instance unpacks about 200 MB, a build needs several GB"))
+    for mark, items in (("ok  ", ok), ("warn", warn), ("FAIL", bad)):
+        for item in items:
+            print(f"{mark} {item}")
+    return 1 if bad else 0
+
+
 # MCP --------------------------------------------------------------------------------------------------------------
 
 ID = {"id": {"type": "string", "description": "instance id, from spawn"}}
@@ -433,6 +499,8 @@ def main(argv: list[str] | None = None) -> int:
     cmd, rest = argv[0], argv[1:]
     if cmd == "mcp":
         return mcp()
+    if cmd == "doctor":
+        return doctor(rest)
     if cmd == "start":
         return start(rest)
     if cmd == "stop":

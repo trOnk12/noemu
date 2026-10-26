@@ -106,6 +106,10 @@ noemu stop
 
 ## Many instances for parallel agents (fleet)
 
+First, `noemu doctor --module :app [--task test<Flavor>DebugUnitTest]` reads the project (it runs nothing) and says what
+will stand in the way: JDK 21, the Android SDK, the app module, flavors, JUnit 5, Android-only native libraries (with
+the JVM build to add, where one exists), disk space.
+
 Build once; then each instance is one JVM started from the recorded command, with no Gradle and no emulator.
 Instances wait in a pool, asleep (no CPU), so an agent's `spawn` only wakes one.
 

@@ -1,3 +1,5 @@
+import contextlib
+import io
 import os
 import subprocess
 import tempfile
@@ -115,6 +117,39 @@ class FleetTest(unittest.TestCase):
         with self.assertRaises(SystemExit) as e:
             cli.main(["spawn"])
         self.assertIn("noemu build", str(e.exception))
+
+
+class DoctorTest(unittest.TestCase):
+    def test_it_names_what_will_stand_in_the_way(self):
+        cwd = os.getcwd()
+        with tempfile.TemporaryDirectory() as d:
+            os.chdir(d)
+            try:
+                Path("gradlew").write_text("")
+                Path("app").mkdir()
+                Path("app/build.gradle.kts").write_text(
+                    'plugins { id("com.android.application") }\nandroid { productFlavors { create("dev") } }\n'
+                    "dependencies { implementation(libs.core.crypto.android) }\n")
+                out = io.StringIO()
+                with mock.patch.dict(os.environ, {"ANDROID_HOME": d}), contextlib.redirect_stdout(out):
+                    code = cli.main(["doctor"])
+            finally:
+                os.chdir(cwd)
+        text = out.getvalue()
+        self.assertEqual(code, 0)
+        self.assertIn("ok   app module :app", text)
+        self.assertIn("test<Flavor>DebugUnitTest", text)
+        self.assertIn("NOEMU_DEPS=com.wire:core-crypto-jvm", text)
+
+    def test_no_gradlew_fails(self):
+        cwd = os.getcwd()
+        with tempfile.TemporaryDirectory() as d:
+            os.chdir(d)
+            try:
+                with contextlib.redirect_stdout(io.StringIO()):
+                    self.assertEqual(cli.main(["doctor"]), 1)
+            finally:
+                os.chdir(cwd)
 
 
 class McpTest(unittest.TestCase):
