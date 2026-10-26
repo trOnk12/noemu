@@ -14,6 +14,9 @@ def configure = { Project p ->
             testImplementation "androidx.test.ext:junit:1.2.1"
             testImplementation "junit:junit:4.13.2"
             testImplementation "com.squareup.leakcanary:shark-android:2.14"  // LeakCanary's heap analysis, for leak paths
+            // Projects on the JUnit Platform (useJUnitPlatform(), common with kotlin.test in KMP) only find the
+            // JUnit 4 driver through the vintage engine; on plain JUnit 4 it is unused.
+            testRuntimeOnly "org.junit.vintage:junit-vintage-engine:5.11.4"
         }
         p.tasks.withType(Test).configureEach { t ->
             t.outputs.upToDateWhen { false }
