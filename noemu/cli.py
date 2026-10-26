@@ -24,6 +24,7 @@ Many instances for parallel agents (fleet): build once, then start each app JVM 
     noemu sleep ID | noemu wake ID   # freeze / resume its JVM: no CPU while asleep, state kept
     noemu destroy ID|all         # end it at once
     noemu list                   # instances: id, state, port, memory
+    noemu mcp                    # the same as an MCP server (stdio) for coding agents
 
 NOEMU_GRADLE_ARGS adds arguments to the Gradle command (e.g. an init script for a mirror). NOEMU_SETTLE_MS (default
 4000) caps how long an action waits for the screen to settle (changing numbers, like a clock, don't count).
@@ -327,6 +328,99 @@ def fleet(cmd: str, rest: list[str]) -> int:
     return 0
 
 
+# MCP --------------------------------------------------------------------------------------------------------------
+
+ID = {"id": {"type": "string", "description": "instance id, from spawn"}}
+TOOLS = {
+    "spawn": ("Get a running app instance: wakes a pooled one (under a second) or starts one. Returns its id and "
+              "first screen. Call build first after changing code.", {}, []),
+    "screen": ("The instance's screen: numbered elements with labels, states and what can be done with them.", ID, ["id"]),
+    "tap": ("Tap an element by its number or its label; returns the new screen.",
+            {**ID, "target": {"type": "string"}}, ["id", "target"]),
+    "type": ("Type text into a field (by number or label); returns the new screen.",
+             {**ID, "target": {"type": "string"}, "text": {"type": "string"}}, ["id", "target", "text"]),
+    "scroll": ("Scroll (down by default; up, left, right).", {**ID, "direction": {"type": "string"}}, ["id"]),
+    "back": ("Press back.", ID, ["id"]),
+    "rotate": ("Rotate the device; shows what the rotation lost.", ID, ["id"]),
+    "wait": ("Let the app run for some milliseconds, then return the screen.",
+             {**ID, "ms": {"type": "integer"}}, ["id"]),
+    "shot": ("A screenshot of the instance, as an image.", ID, ["id"]),
+    "logs": ("The app's recent log lines.", ID, ["id"]),
+    "sleep": ("Freeze the instance (no CPU, state kept).", ID, ["id"]),
+    "wake": ("Resume a frozen instance.", ID, ["id"]),
+    "destroy": ("End the instance and remove its files.", ID, ["id"]),
+    "list": ("All instances: id, state, port, memory.", {}, []),
+    "pool": ("Start N instances asleep, so later spawns are instant.", {"n": {"type": "integer"}}, ["n"]),
+    "build": ("Compile the app and record how it starts (after every code change; pooled instances of the old code "
+              "are dropped).", {"module": {"type": "string"}, "task": {"type": "string"}}, []),
+}
+
+
+def run_tool(name: str, a: dict) -> list:
+    """Runs one tool through the same functions as the command line; returns MCP content."""
+    import contextlib, io, base64
+    global INSTANCE
+    out = io.StringIO()
+    INSTANCE = str(a["id"]) if "id" in a else None
+    try:
+        with contextlib.redirect_stdout(out):
+            if name == "spawn":
+                spawn()
+                INSTANCE = out.getvalue().split()[0]
+                print("\n" + send("screen"))
+            elif name == "build":
+                build([x for k in ("module", "task") if a.get(k) for x in (f"--{k}", a[k])])
+            elif name == "pool":
+                pool(int(a["n"]))
+            elif name in ("list", "sleep", "wake", "destroy"):
+                fleet(name, [str(a["id"])] if "id" in a else [])
+            elif name == "shot":
+                path = (target() / "mcp-shot.png").resolve()
+                send(f"shot {path}")
+                return [{"type": "image", "data": base64.b64encode(path.read_bytes()).decode(), "mimeType": "image/png"}]
+            else:
+                line = {"tap": f"tap {a.get('target', '')}", "type": f"type {a.get('target', '')}\t{a.get('text', '')}",
+                        "scroll": f"scroll {a.get('direction', 'down')}", "wait": f"wait {a.get('ms', 1000)}"}.get(name, name)
+                print(send(line))
+    except SystemExit as e:
+        raise RuntimeError(str(e.code) if e.code not in (None, 0) else out.getvalue()) from None
+    return [{"type": "text", "text": out.getvalue().strip()}]
+
+
+def mcp() -> int:
+    """A stdio MCP server (JSON-RPC 2.0, one message per line) exposing the fleet and session commands as tools."""
+    for raw in sys.stdin:
+        if not raw.strip():
+            continue
+        msg = json.loads(raw)
+        if "id" not in msg:  # a notification (notifications/initialized): no answer
+            continue
+        method, params = msg.get("method"), msg.get("params") or {}
+        try:
+            if method == "initialize":
+                result = {"protocolVersion": params.get("protocolVersion", "2025-06-18"),
+                          "capabilities": {"tools": {}}, "serverInfo": {"name": "noemu", "version": "0.2"}}
+            elif method == "tools/list":
+                result = {"tools": [{"name": n, "description": d, "inputSchema": {
+                    "type": "object", "properties": props, "required": req}} for n, (d, props, req) in TOOLS.items()]}
+            elif method == "tools/call":
+                try:
+                    result = {"content": run_tool(params["name"], params.get("arguments") or {})}
+                except (RuntimeError, OSError, KeyError, ValueError) as e:
+                    text = str(e) if str(e).startswith("noemu:") else f"noemu: {e}"
+                    result = {"content": [{"type": "text", "text": text}], "isError": True}
+            elif method == "ping":
+                result = {}
+            else:
+                raise LookupError(method)
+            reply = {"jsonrpc": "2.0", "id": msg["id"], "result": result}
+        except LookupError as e:
+            reply = {"jsonrpc": "2.0", "id": msg["id"], "error": {"code": -32601, "message": f"unknown method {e}"}}
+        sys.stdout.write(json.dumps(reply) + "\n")
+        sys.stdout.flush()
+    return 0
+
+
 def main(argv: list[str] | None = None) -> int:
     global INSTANCE
     argv = sys.argv[1:] if argv is None else argv
@@ -337,6 +431,8 @@ def main(argv: list[str] | None = None) -> int:
         print(__doc__)
         return 0
     cmd, rest = argv[0], argv[1:]
+    if cmd == "mcp":
+        return mcp()
     if cmd == "start":
         return start(rest)
     if cmd == "stop":

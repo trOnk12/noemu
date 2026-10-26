@@ -161,6 +161,18 @@ NOEMU_DEPS=com.wire:core-crypto-jvm:10.5.4 noemu build --module :app --task test
 - The `dev` flavor talks to Wire's staging backend; log in with a test account.
 - Calls (AVS) won't work: AVS ships Android libraries only.
 
+**As an MCP server.** `noemu mcp` serves the same commands as tools (`spawn`, `screen`, `tap`, `type`, `scroll`,
+`back`, `rotate`, `wait`, `shot` (an image), `logs`, `sleep`, `wake`, `destroy`, `list`, `pool`, `build`) over stdio,
+so an agent calls them directly instead of composing shell commands. Run it from the project root. For Claude Code:
+
+```bash
+cd your-android-project
+claude mcp add noemu -- noemu mcp     # or in .mcp.json: {"mcpServers": {"noemu": {"command": "noemu", "args": ["mcp"]}}}
+```
+
+Checked on the KMP demo through a JSON-RPC client: `spawn` returned an instance and its first screen, `tap` answered in
+0.64 s, `shot` returned a PNG, a wrong id came back as a tool error, `destroy` in 0.05 s.
+
 For your agents' instructions (AGENTS.md / CLAUDE.md):
 
 ```markdown

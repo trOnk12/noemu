@@ -117,5 +117,44 @@ class FleetTest(unittest.TestCase):
         self.assertIn("noemu build", str(e.exception))
 
 
+class McpTest(unittest.TestCase):
+    """The MCP server's protocol, with the tools' work mocked."""
+
+    def serve(self, *messages):
+        import io, json
+        stdin = io.StringIO("".join(json.dumps(m) + "\n" for m in messages))
+        stdout = io.StringIO()
+        with mock.patch.object(cli.sys, "stdin", stdin), mock.patch.object(cli.sys, "stdout", stdout):
+            cli.main(["mcp"])
+        return [json.loads(line) for line in stdout.getvalue().splitlines()]
+
+    def test_initialize_and_list_tools(self):
+        replies = self.serve({"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {"protocolVersion": "2025-06-18"}},
+                             {"jsonrpc": "2.0", "method": "notifications/initialized"},
+                             {"jsonrpc": "2.0", "id": 2, "method": "tools/list"})
+        self.assertEqual(len(replies), 2)  # no answer to a notification
+        self.assertEqual(replies[0]["result"]["serverInfo"]["name"], "noemu")
+        names = [t["name"] for t in replies[1]["result"]["tools"]]
+        self.assertTrue({"spawn", "screen", "tap", "type", "destroy", "build"} <= set(names))
+
+    def test_a_tool_call_goes_to_its_instance(self):
+        with mock.patch.object(cli, "send", return_value="activity Main\n[0] button OK") as send:
+            reply, = self.serve({"jsonrpc": "2.0", "id": 1, "method": "tools/call",
+                                 "params": {"name": "tap", "arguments": {"id": "4", "target": "OK"}}})
+        send.assert_called_once_with("tap OK")
+        self.assertEqual(cli.INSTANCE, "4")
+        self.assertIn("[0] button OK", reply["result"]["content"][0]["text"])
+
+    def test_a_failing_tool_is_a_tool_error_not_a_crash(self):
+        reply, = self.serve({"jsonrpc": "2.0", "id": 1, "method": "tools/call",
+                             "params": {"name": "screen", "arguments": {"id": "nope"}}})
+        self.assertTrue(reply["result"]["isError"])
+        self.assertIn("isn't running", reply["result"]["content"][0]["text"])
+
+    def test_unknown_method(self):
+        reply, = self.serve({"jsonrpc": "2.0", "id": 7, "method": "foo/bar"})
+        self.assertEqual(reply["error"]["code"], -32601)
+
+
 if __name__ == "__main__":
     unittest.main()
