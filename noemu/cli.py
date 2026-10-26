@@ -173,7 +173,9 @@ def launch() -> Path:
         except FileExistsError:
             continue
     args = [a for a in spec["jvmArgs"] if not a.startswith(("-Dnoemu.out=", "-Dnoemu.settle=", "-Dnoemu.shots=", "-Xmx"))]
-    args += [f"-Xmx{os.environ.get('NOEMU_XMX', '1g')}", f"-Dnoemu.out={out.resolve()}"]
+    (out / "tmp").mkdir()  # Robolectric unpacks its native runtime (about 200 MB) and the app's data here
+    args += [f"-Xmx{os.environ.get('NOEMU_XMX', '1g')}", f"-Dnoemu.out={out.resolve()}",
+             f"-Djava.io.tmpdir={(out / 'tmp').resolve()}"]
     args += [f"-Dnoemu.{k}={os.environ[v]}" for k, v in (("settle", "NOEMU_SETTLE_MS"), ("shots", "NOEMU_SHOTS"))
              if os.environ.get(v)]
     (out / "build").write_text(build_id())
@@ -233,7 +235,7 @@ def destroy_one(d: Path) -> None:
         signal_to(d, signal.SIGKILL, "destroyed")
     except OSError:
         (d / "state").write_text("destroyed")
-    for root in dirs:
+    for root in dirs | {d / "tmp"}:
         shutil.rmtree(root, ignore_errors=True)
 
 
@@ -304,6 +306,10 @@ def fleet(cmd: str, rest: list[str]) -> int:
         return 0
     if not rest:
         sys.exit(f"noemu: {cmd} needs an instance id (noemu list)")
+    if rest[0] == "all" and cmd == "destroy" and FLEET.exists():  # also what instances that died left behind
+        for d in FLEET.iterdir():
+            if d.name.isdigit() and not alive(d):
+                shutil.rmtree(d / "tmp", ignore_errors=True)
     dirs = instances() if rest[0] == "all" else [FLEET / rest[0]]
     for d in dirs:
         if not (d / "pid").exists():
