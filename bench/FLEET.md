@@ -69,3 +69,9 @@ with those options against 10.3-10.8 s without; taps 0.6-0.7 s either way. They 
 `pool 12` (default settings, `NOEMU_SHOTS=0`): all 12 asleep in the pool after 56 s (before: about 90 s), 4.6 GB
 together, 385-389 MB each (before: 6.4 GB). Then three agents' `spawn` + tap while the pool refilled (load average 13
 on 4 cores): taps answered in 834-928 ms. Nothing new in the shared temporary directory.
+
+## Idle instances end themselves (2026-10-26)
+
+`NOEMU_IDLE_MIN=0.25`: a spawned instance left without commands ended after 16 s; a pooled one asleep for 40 s was
+alive when spawned, answered a tap, and ended 16 s after it. The driver counts idle time in 2 s ticks and skips a tick
+that took far longer (the process was frozen), so time in the pool isn't idle time.

@@ -88,8 +88,27 @@ class NoemuDriver {
         val server = ServerSocket(System.getProperty("noemu.port", "0").toInt(), 1, InetAddress.getLoopbackAddress())
         File(out, "port").writeText(server.localPort.toString())
         println("noemu: listening on ${server.localPort} after ${System.currentTimeMillis() - jvmStart} ms")
+        // NOEMU_IDLE_MIN: end after that many minutes without a command, counting only time the JVM ran (a pooled,
+        // frozen instance isn't idle: a tick that took far longer than it should means the process was stopped).
+        val idleLimitMs = (System.getProperty("noemu.idle")?.toDoubleOrNull() ?: 0.0) * 60_000
+        if (idleLimitMs > 0) server.soTimeout = 2000
+        var idleMs = 0L
+        var tick = System.currentTimeMillis()
         while (true) {
-            val socket = server.accept()
+            val socket = try {
+                server.accept()
+            } catch (e: java.net.SocketTimeoutException) {
+                val now = System.currentTimeMillis()
+                if (now - tick < 4000) idleMs += now - tick  // ran the whole tick; longer: it was asleep
+                tick = now
+                if (idleMs >= idleLimitMs) {
+                    println("noemu: idle for ${idleMs / 60_000.0} min, ending")
+                    break
+                }
+                continue
+            }
+            idleMs = 0L
+            tick = System.currentTimeMillis()
             val reader = BufferedReader(InputStreamReader(socket.getInputStream()))
             val writer = PrintWriter(socket.getOutputStream(), true)
             val line = reader.readLine() ?: continue
@@ -101,6 +120,7 @@ class NoemuDriver {
             synchronized(backgroundCrashes) { backgroundCrashes.toList().also { backgroundCrashes.clear() } }
                 .forEach { e -> reply = "the app crashed: ${generateSequence(e) { it.cause }.last()}\n" + reply }
             writer.println(reply); writer.println("."); socket.close()
+            tick = System.currentTimeMillis()
         }
         server.close()
     }

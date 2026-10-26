@@ -30,8 +30,8 @@ Many instances for parallel agents (fleet): build once, then start each app JVM 
 NOEMU_GRADLE_ARGS adds arguments to the Gradle command (e.g. an init script for a mirror). NOEMU_SETTLE_MS (default
 4000) caps how long an action waits for the screen to settle (changing numbers, like a clock, don't count).
 NOEMU_DEPS adds test-runtime dependencies (comma-separated), e.g. JVM builds of native libraries the app loads.
-NOEMU_SHOTS=0 skips the screenshot after every action (about 0.3 s each; `shot` still makes one). NOEMU_XMX
-(default 1g) is each fleet instance's heap; NOEMU_JVM_ARGS (default
+NOEMU_SHOTS=0 skips the screenshot after every action (about 0.3 s each; `shot` still makes one). NOEMU_IDLE_MIN ends a fleet instance after that many minutes without a
+command (asleep in the pool doesn't count). NOEMU_XMX (default 1g) is each fleet instance's heap; NOEMU_JVM_ARGS (default
 "-XX:+UseSerialGC -XX:TieredStopAtLevel=1": smaller, faster to start) sets each instance's JVM options.
 """
 from __future__ import annotations
@@ -180,8 +180,8 @@ def launch() -> Path:
     (out / "tmp").mkdir()  # Robolectric unpacks its native runtime (about 200 MB) and the app's data here
     args += [f"-Xmx{os.environ.get('NOEMU_XMX', '1g')}", f"-Dnoemu.out={out.resolve()}",
              f"-Djava.io.tmpdir={(out / 'tmp').resolve()}"]
-    args += [f"-Dnoemu.{k}={os.environ[v]}" for k, v in (("settle", "NOEMU_SETTLE_MS"), ("shots", "NOEMU_SHOTS"))
-             if os.environ.get(v)]
+    args += [f"-Dnoemu.{k}={os.environ[v]}" for k, v in (("settle", "NOEMU_SETTLE_MS"), ("shots", "NOEMU_SHOTS"),
+                                                         ("idle", "NOEMU_IDLE_MIN")) if os.environ.get(v)]
     # Many small app JVMs: the serial collector and the fast JIT tier only start about 1 s sooner and use about 17%
     # less memory (388 against 468 MB on the KMP demo) with taps as fast. NOEMU_JVM_ARGS replaces them ("" for none).
     args += os.environ.get("NOEMU_JVM_ARGS", "-XX:+UseSerialGC -XX:TieredStopAtLevel=1").split()
@@ -519,5 +519,14 @@ def main(argv: list[str] | None = None) -> int:
     return 2
 
 
+def entry() -> int:
+    """The installed `noemu` command."""
+    try:
+        return main()
+    except BrokenPipeError:  # the reader went away (`noemu screen | head`): not an error
+        os.dup2(os.open(os.devnull, os.O_WRONLY), sys.stdout.fileno())
+        return 0
+
+
 if __name__ == "__main__":
-    sys.exit(main())
+    sys.exit(entry())

@@ -1,5 +1,5 @@
 import sys
 
-from noemu.cli import main
+from noemu.cli import entry
 
-sys.exit(main())
+sys.exit(entry())

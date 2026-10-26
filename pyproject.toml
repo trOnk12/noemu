@@ -13,7 +13,7 @@ dependencies = []
 keywords = ["android", "robolectric", "jetpack-compose", "testing", "ai-agents", "emulator"]
 
 [project.scripts]
-noemu = "noemu.cli:main"
+noemu = "noemu.cli:entry"
 
 [tool.setuptools]
 packages = ["noemu"]
