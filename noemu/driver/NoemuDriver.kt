@@ -681,6 +681,7 @@ class NoemuDriver {
     // How long an action waits for the screen to settle (two unchanged reads); NOEMU_SETTLE_MS shortens it for
     // screens that never settle (a running clock, an endless animation).
     private val settleMs = System.getProperty("noemu.settle")?.toLongOrNull() ?: 4000
+    private val DIGITS = Regex("\\d+")
 
     private fun stable(maxMs: Long = settleMs) {
         val start = System.currentTimeMillis()
@@ -688,7 +689,10 @@ class NoemuDriver {
         var same = 0
         while (System.currentTimeMillis() - start < maxMs) {
             settle(300)
-            val now = runCatching { collect().joinToString("|") { "${it.kind}:${it.label}:${it.bounds}" } }.getOrDefault("")
+            // Digits masked: a running clock, a timer or a progress count changes every frame but doesn't make the
+            // screen unsettled for an agent's next action.
+            val now = runCatching { collect().joinToString("|") { "${it.kind}:${it.label.replace(DIGITS, "#")}:${it.bounds}" } }
+                .getOrDefault("")
             same = if (now == last && now.isNotEmpty()) same + 1 else 0
             if (same >= 2) return
             last = now

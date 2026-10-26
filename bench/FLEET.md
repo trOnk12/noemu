@@ -48,3 +48,9 @@ The fleet moved into `noemu` itself (`build`, `pool`, `spawn`, `sleep`, `wake`, 
 different instances and the pool refilled itself; `destroy` removes the instance's temporary app data. Tap answered,
 `NOEMU_SETTLE_MS=1000`, under load average 12: 1.1-1.3 s without per-action screenshots, about 1.45 s with (the
 first tap on an instance about 1 s slower: a cold JIT).
+
+## Settling with numbers masked (2026-10-26)
+
+An action used to wait until two reads of the screen matched; a running clock never matched, so every tap on the demo
+waited the full 4 s. The settle check now masks digits. Same demo, default settings, `NOEMU_SHOTS=0`: taps answered
+in 627-830 ms (4 taps), each landing (the tapped checkbox selected) while the clock kept running.

@@ -121,8 +121,9 @@ noemu list
 
 `spawn` refills the pool in the background. `build` drops pooled instances of the previous build, so an agent never
 gets old code; instances already handed out keep running until destroyed. Each instance has its own app data
-(Robolectric's temporary directory), removed by `destroy`. Settings, per instance at start: `NOEMU_SETTLE_MS` (how long
-an action waits for the screen to settle, default 4000; lower it if a screen never settles, e.g. a running clock),
+(Robolectric's temporary directory), removed by `destroy`. Settings, per instance at start: `NOEMU_SETTLE_MS` (the longest an
+action waits for the screen to settle, default 4000; numbers that keep changing, like a clock or a timer, don't count
+as unsettled),
 `NOEMU_SHOTS=0` (no screenshot after every action), `NOEMU_XMX` (heap, default 1g).
 
 Measured on a Compose Multiplatform app (`androidTarget`) in a 4-core, 16 GB container with no KVM, while other
@@ -135,7 +136,7 @@ jobs loaded it ([details](bench/FLEET.md)):
 | Destroy | under 0.1 s |
 | Full start (refilling the pool) | 25 s on an idle machine; about 50-70 s under load |
 | Memory per instance | about 0.5 GB; 12 ran at once in 6.4 GB |
-| Tap answered, with `NOEMU_SETTLE_MS=1000` | about 1.1 s without screenshots, 1.45 s with |
+| Tap answered (default settings, `NOEMU_SHOTS=0`) | 0.6-0.8 s, also on a screen with a running clock |
 
 **Kotlin Multiplatform**: point `--module` at the module that applies `com.android.application` (often `:composeApp`
 or `:androidApp`). Modules testing on the JUnit Platform (`kotlin.test`) are supported. noemu runs the Android

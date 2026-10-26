@@ -26,7 +26,7 @@ Many instances for parallel agents (fleet): build once, then start each app JVM 
     noemu list                   # instances: id, state, port, memory
 
 NOEMU_GRADLE_ARGS adds arguments to the Gradle command (e.g. an init script for a mirror). NOEMU_SETTLE_MS (default
-4000) caps how long an action waits for the screen to settle; lower it for screens that never do (a running clock).
+4000) caps how long an action waits for the screen to settle (changing numbers, like a clock, don't count).
 NOEMU_DEPS adds test-runtime dependencies (comma-separated), e.g. JVM builds of native libraries the app loads.
 NOEMU_SHOTS=0 skips the screenshot after every action (about 0.3 s each; `shot` still makes one). NOEMU_XMX
 (default 1g) is each fleet instance's heap.
