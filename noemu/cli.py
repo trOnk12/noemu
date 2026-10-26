@@ -29,7 +29,8 @@ NOEMU_GRADLE_ARGS adds arguments to the Gradle command (e.g. an init script for 
 4000) caps how long an action waits for the screen to settle (changing numbers, like a clock, don't count).
 NOEMU_DEPS adds test-runtime dependencies (comma-separated), e.g. JVM builds of native libraries the app loads.
 NOEMU_SHOTS=0 skips the screenshot after every action (about 0.3 s each; `shot` still makes one). NOEMU_XMX
-(default 1g) is each fleet instance's heap.
+(default 1g) is each fleet instance's heap; NOEMU_JVM_ARGS (default
+"-XX:+UseSerialGC -XX:TieredStopAtLevel=1": smaller, faster to start) sets each instance's JVM options.
 """
 from __future__ import annotations
 
@@ -179,6 +180,9 @@ def launch() -> Path:
              f"-Djava.io.tmpdir={(out / 'tmp').resolve()}"]
     args += [f"-Dnoemu.{k}={os.environ[v]}" for k, v in (("settle", "NOEMU_SETTLE_MS"), ("shots", "NOEMU_SHOTS"))
              if os.environ.get(v)]
+    # Many small app JVMs: the serial collector and the fast JIT tier only start about 1 s sooner and use about 17%
+    # less memory (388 against 468 MB on the KMP demo) with taps as fast. NOEMU_JVM_ARGS replaces them ("" for none).
+    args += os.environ.get("NOEMU_JVM_ARGS", "-XX:+UseSerialGC -XX:TieredStopAtLevel=1").split()
     (out / "build").write_text(build_id())
     proc = subprocess.Popen([spec["java"], *args, "-cp", spec["classpath"], "org.junit.runner.JUnitCore",
                              "dev.noemu.NoemuDriver"], cwd=spec["workingDir"], stdout=open(out / "log.txt", "w"),

@@ -124,7 +124,8 @@ gets old code; instances already handed out keep running until destroyed. Each i
 (Robolectric's temporary directory), removed by `destroy`. Settings, per instance at start: `NOEMU_SETTLE_MS` (the longest an
 action waits for the screen to settle, default 4000; numbers that keep changing, like a clock or a timer, don't count
 as unsettled),
-`NOEMU_SHOTS=0` (no screenshot after every action), `NOEMU_XMX` (heap, default 1g).
+`NOEMU_SHOTS=0` (no screenshot after every action), `NOEMU_XMX` (heap, default 1g), `NOEMU_JVM_ARGS` (default
+`-XX:+UseSerialGC -XX:TieredStopAtLevel=1`, which made instances about 17% smaller and a second faster to start).
 
 Measured on a Compose Multiplatform app (`androidTarget`) in a 4-core, 16 GB container with no KVM, while other
 jobs loaded it ([details](bench/FLEET.md)):
@@ -135,7 +136,7 @@ jobs loaded it ([details](bench/FLEET.md)):
 | Sleep / wake (state kept) | about 50 ms / 0.4 s |
 | Destroy | under 0.1 s |
 | Full start (refilling the pool, or `spawn` with an empty pool) | about 10 s (Android ready 6 s, app 9 s, settled 10 s); slower under load |
-| Memory per instance | about 0.5 GB; 12 ran at once in 6.4 GB |
+| Memory per instance | about 390 MB (default JVM options); 12 ran at once in 6.4 GB before that change |
 | Tap answered (default settings, `NOEMU_SHOTS=0`) | 0.6-0.8 s, also on a screen with a running clock |
 
 **Kotlin Multiplatform**: point `--module` at the module that applies `com.android.application` (often `:composeApp`

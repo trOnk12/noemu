@@ -57,3 +57,9 @@ in 627-830 ms (4 taps), each landing (the tapped checkbox selected) while the cl
 The same change shortened a cold start, which ends by waiting for the first screen to settle: `spawn` with an empty
 pool took 10 s (load average 3.7): Robolectric's Android ready after 6.2 s, the app launched after 9.1 s, settled and
 listening after 9.8 s. Before, the settle step alone ran out its 15 s on this demo.
+
+## JVM options for small instances (2026-10-26)
+
+Same demo, one instance each, after 3 taps (all landing): default JVM 468 MB; `-Xmx512m` 464 MB; serial GC with the
+fast JIT tier only (`-XX:+UseSerialGC -XX:TieredStopAtLevel=1`) 388 MB, the same at `-Xmx384m`. Ready after 9.1-9.7 s
+with those options against 10.3-10.8 s without; taps 0.6-0.7 s either way. They are the fleet's default now.
