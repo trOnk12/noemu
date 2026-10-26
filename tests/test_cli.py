@@ -180,6 +180,12 @@ class McpTest(unittest.TestCase):
         self.assertEqual(cli.INSTANCE, "4")
         self.assertIn("[0] button OK", reply["result"]["content"][0]["text"])
 
+    def test_open_takes_an_activity_or_a_link(self):
+        with mock.patch.object(cli, "send", return_value="activity Chat") as send:
+            self.serve({"jsonrpc": "2.0", "id": 1, "method": "tools/call",
+                        "params": {"name": "open", "arguments": {"id": "2", "target": "wire://conversation/1"}}})
+        send.assert_called_once_with("open wire://conversation/1")
+
     def test_a_failing_tool_is_a_tool_error_not_a_crash(self):
         reply, = self.serve({"jsonrpc": "2.0", "id": 1, "method": "tools/call",
                              "params": {"name": "screen", "arguments": {"id": "nope"}}})

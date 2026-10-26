@@ -9,6 +9,7 @@ changes. Made for coding agents in sandboxes without an emulator, and for anyone
     noemu tap 3 | noemu tap "Sign in"
     noemu type 2 "hello@example.com"
     noemu scroll down [N] | noemu back | noemu rotate [N] | noemu kill | noemu wait 2000
+    noemu open .SettingsActivity | noemu open myapp://chat/42   # an activity, or a deep link
     noemu leaks                  # destroyed screens still in memory, and what holds them
     noemu shot out.png | noemu logs
     noemu crawl [STEPS] [MINUTES]  # tap and rotate through the app (default 200 steps, 10 min); report crashes and lost state
@@ -410,6 +411,8 @@ TOOLS = {
     "rotate": ("Rotate the device; shows what the rotation lost.", ID, ["id"]),
     "wait": ("Let the app run for some milliseconds, then return the screen.",
              {**ID, "ms": {"type": "integer"}}, ["id"]),
+    "open": ("Open an activity (.SettingsActivity or a full class name) or a deep link (myapp://...) in the instance; "
+             "returns the new screen.", {**ID, "target": {"type": "string"}}, ["id", "target"]),
     "shot": ("A screenshot of the instance, as an image.", ID, ["id"]),
     "logs": ("The app's recent log lines.", ID, ["id"]),
     "sleep": ("Freeze the instance (no CPU, state kept).", ID, ["id"]),
@@ -446,7 +449,8 @@ def run_tool(name: str, a: dict) -> list:
                 return [{"type": "image", "data": base64.b64encode(path.read_bytes()).decode(), "mimeType": "image/png"}]
             else:
                 line = {"tap": f"tap {a.get('target', '')}", "type": f"type {a.get('target', '')}\t{a.get('text', '')}",
-                        "scroll": f"scroll {a.get('direction', 'down')}", "wait": f"wait {a.get('ms', 1000)}"}.get(name, name)
+                        "scroll": f"scroll {a.get('direction', 'down')}", "wait": f"wait {a.get('ms', 1000)}",
+                        "open": f"open {a.get('target', '')}"}.get(name, name)
                 print(send(line))
     except SystemExit as e:
         raise RuntimeError(str(e.code) if e.code not in (None, 0) else out.getvalue()) from None
@@ -507,7 +511,8 @@ def main(argv: list[str] | None = None) -> int:
         return stop()
     if cmd in ("build", "pool", "spawn", "_refill", "list", "sleep", "wake", "destroy"):
         return fleet(cmd, rest)
-    if cmd in ("screen", "tap", "type", "scroll", "back", "rotate", "kill", "leaks", "wait", "shot", "logs", "crawl"):
+    if cmd in ("screen", "tap", "type", "scroll", "back", "rotate", "kill", "leaks", "wait", "open", "shot", "logs",
+               "crawl"):
         line = " ".join([cmd] + rest)
         if cmd == "type" and len(rest) >= 2:
             line = f"type {rest[0]}\t{' '.join(rest[1:])}"

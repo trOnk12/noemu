@@ -145,10 +145,11 @@ class NoemuDriver {
             "kill" -> { killAndRestore(); stable(); "killed in the background and reopened (saved state ${savedBytes / 1024} KB)\n" + screen() }
             "rotate" -> { repeat(rest.toIntOrNull() ?: 1) { rotate(); stable(2500) }; "now ${if (landscape) "landscape" else "portrait"}\n" + screen() }
             "wait" -> { settle(rest.toLongOrNull() ?: 1000); stable(); screen() }
+            "open" -> openCommand(rest.trim())
             "shot" -> shot(File(rest.ifBlank { File(out, "screen.png").path }))
             "crawl" -> rest.split(" ").let { a -> crawl(a[0].toIntOrNull() ?: 200, a.getOrNull(1)?.toLongOrNull() ?: 10) }
             "logs" -> ShadowLog.getLogs().takeLast(60).joinToString("\n") { "${it.type.toLevel()} ${it.tag}: ${it.msg}" + (it.throwable?.let { e -> "\n  $e" } ?: "") }
-            else -> "unknown command: $cmd (screen, tap, type, scroll, back, rotate, kill, leaks, wait, shot, logs, crawl, quit)"
+            else -> "unknown command: $cmd (screen, tap, type, scroll, back, rotate, kill, leaks, wait, open, shot, logs, crawl, quit)"
         }
     }
 
@@ -662,6 +663,23 @@ class NoemuDriver {
     private fun <T> onActivity(block: (Activity) -> T): T {
         val top = stack.lastOrNull()?.get() ?: error("no activity on screen")
         return block(top)
+    }
+
+    /** `open .SomeActivity` (or a full class name) starts that activity; `open scheme://...` delivers a deep link as
+     *  Android would (ACTION_VIEW), to whichever of the app's activities handles it. Returns the new screen. */
+    private fun openCommand(arg: String): String {
+        if (arg.isEmpty()) return "open what? an activity (.MainActivity) or a link (myapp://...)"
+        val intent = if ("://" in arg || arg.startsWith("mailto:") || arg.startsWith("tel:")) {
+            Intent(Intent.ACTION_VIEW, android.net.Uri.parse(arg)).setPackage(app.packageName)
+        } else {
+            Intent().setClassName(app, if (arg.startsWith(".")) app.packageName + arg else arg)
+        }
+        val before = stack.size
+        val started = runCatching { open(intent) }
+        started.exceptionOrNull()?.let { return "could not open $arg: $it" }
+        if (stack.size == before) return "nothing in this app handles $arg"
+        stable()
+        return screen()
     }
 
     private fun open(intent: Intent) {

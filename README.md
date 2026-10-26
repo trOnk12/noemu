@@ -99,6 +99,7 @@ noemu tap 16              # by number
 noemu tap "Sign in"       # or by label
 noemu type 2 "hello@example.com"
 noemu scroll down | noemu back | noemu rotate | noemu kill | noemu leaks | noemu wait 2000
+noemu open .SettingsActivity | noemu open myapp://chat/42    # an activity, or a deep link (ACTION_VIEW)
 noemu shot out.png | noemu logs
 noemu crawl 100 [MINUTES]   # every decision it takes goes to .gradle/noemu/crawl.log
 noemu stop
@@ -167,7 +168,7 @@ NOEMU_DEPS=com.wire:core-crypto-jvm:10.5.4 noemu build --module :app --task test
 - Calls (AVS) won't work: AVS ships Android libraries only.
 
 **As an MCP server.** `noemu mcp` serves the same commands as tools (`spawn`, `screen`, `tap`, `type`, `scroll`,
-`back`, `rotate`, `wait`, `shot` (an image), `logs`, `sleep`, `wake`, `destroy`, `list`, `pool`, `build`) over stdio,
+`back`, `rotate`, `wait`, `open` (an activity or a deep link), `shot` (an image), `logs`, `sleep`, `wake`, `destroy`, `list`, `pool`, `build`) over stdio,
 so an agent calls them directly instead of composing shell commands. Run it from the project root. For Claude Code:
 
 ```bash
