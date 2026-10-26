@@ -141,6 +141,24 @@ jobs loaded it ([details](bench/FLEET.md)):
 or `:androidApp`). Modules testing on the JUnit Platform (`kotlin.test`) are supported. noemu runs the Android
 target only: iOS needs a simulator.
 
+**Apps that load native libraries.** Android `.so` files can't load on the JVM. When a library also ships a JVM
+artifact with the same classes and host libraries, add it with `NOEMU_DEPS` (comma-separated coordinates).
+
+**Wire (wire-android with Kalium)** — prepared from Wire's source, not yet run (this environment couldn't build it):
+
+```bash
+git clone --recurse-submodules https://github.com/wireapp/wire-android && cd wire-android   # JDK 21
+NOEMU_DEPS=com.wire:core-crypto-jvm:10.5.4 noemu build --module :app --task testDevDebugUnitTest
+```
+
+- `core-crypto-jvm` has the same 466 classes as `core-crypto-android` (bar 2 Android-only helpers) plus
+  `linux-x86-64` and `darwin-aarch64` libraries, so Kalium's MLS and Proteus can run. Match its version to
+  `core-crypto` in `kalium/gradle/libs.versions.toml`.
+- A debug build on Android 11+ (noemu runs SDK 36) doesn't encrypt Kalium's databases (`shouldEncryptData` in
+  `KaliumConfigsModule`), so SQLCipher's Android library is never loaded.
+- The `dev` flavor talks to Wire's staging backend; log in with a test account.
+- Calls (AVS) won't work: AVS ships Android libraries only.
+
 For your agents' instructions (AGENTS.md / CLAUDE.md):
 
 ```markdown

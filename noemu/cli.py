@@ -27,6 +27,7 @@ Many instances for parallel agents (fleet): build once, then start each app JVM 
 
 NOEMU_GRADLE_ARGS adds arguments to the Gradle command (e.g. an init script for a mirror). NOEMU_SETTLE_MS (default
 4000) caps how long an action waits for the screen to settle; lower it for screens that never do (a running clock).
+NOEMU_DEPS adds test-runtime dependencies (comma-separated), e.g. JVM builds of native libraries the app loads.
 NOEMU_SHOTS=0 skips the screenshot after every action (about 0.3 s each; `shot` still makes one). NOEMU_XMX
 (default 1g) is each fleet instance's heap.
 """
@@ -73,8 +74,8 @@ def gradle(opts: dict, props: list[str], log: Path) -> subprocess.Popen:
     if not Path("gradlew").exists():
         sys.exit("noemu: run from the project root (where gradlew is)")
     props = [f"-Dnoemu.module={opts['--module']}", f"-Dnoemu.driver={HERE}", f"-Dnoemu.out={STATE.resolve()}", *props]
-    props += [f"-Dnoemu.{k}={os.environ[v]}" for k, v in (("settle", "NOEMU_SETTLE_MS"), ("shots", "NOEMU_SHOTS"))
-              if os.environ.get(v)]
+    props += [f"-Dnoemu.{k}={os.environ[v]}" for k, v in (("settle", "NOEMU_SETTLE_MS"), ("shots", "NOEMU_SHOTS"),
+                                                          ("deps", "NOEMU_DEPS")) if os.environ.get(v)]
     extra = os.environ.get("NOEMU_GRADLE_ARGS", "").split()
     cmd = ["bash", "./gradlew", "--console=plain", "-I", str(HERE / "noemu.init.gradle"), *props, *extra,
            f"{opts['--module']}:{opts['--task']}", "--tests", "dev.noemu.NoemuDriver"]

@@ -17,6 +17,9 @@ def configure = { Project p ->
             // Projects on the JUnit Platform (useJUnitPlatform(), common with kotlin.test in KMP) only find the
             // JUnit 4 driver through the vintage engine; on plain JUnit 4 it is unused.
             testRuntimeOnly "org.junit.vintage:junit-vintage-engine:5.11.4"
+            // NOEMU_DEPS: JVM builds of native libraries the app loads, e.g. com.wire:core-crypto-jvm (Android's
+            // .so files can't load on the JVM; a JVM artifact with the same classes brings host libraries).
+            System.getProperty("noemu.deps", "").split(",").findAll { it.trim() }.each { testRuntimeOnly it.trim() }
         }
         p.tasks.withType(Test).configureEach { t ->
             t.outputs.upToDateWhen { false }
