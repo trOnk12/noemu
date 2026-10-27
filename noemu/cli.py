@@ -10,6 +10,7 @@ changes. Made for coding agents in sandboxes without an emulator, and for anyone
     noemu type 2 "hello@example.com"
     noemu scroll down [N] | noemu back | noemu rotate [N] | noemu kill | noemu wait 2000
     noemu open .SettingsActivity | noemu open myapp://chat/42   # an activity, or a deep link
+    noemu network off | noemu network on   # airplane mode: open connections closed, new ones refused, app told
     noemu leaks                  # destroyed screens still in memory, and what holds them
     noemu shot out.png | noemu logs
     noemu crawl [STEPS] [MINUTES]  # tap and rotate through the app (default 200 steps, 10 min); report crashes and lost state
@@ -422,6 +423,9 @@ TOOLS = {
              {**ID, "ms": {"type": "integer"}}, ["id"]),
     "open": ("Open an activity (.SettingsActivity or a full class name) or a deep link (myapp://...) in the instance; "
              "returns the new screen.", {**ID, "target": {"type": "string"}}, ["id", "target"]),
+    "network": ("Airplane mode for the instance: 'off' closes its open connections (a websocket too), refuses new ones "
+                "and tells the app; 'on' brings it back. Returns the new screen.",
+                {**ID, "state": {"type": "string", "enum": ["on", "off"]}}, ["id", "state"]),
     "shot": ("A screenshot of the instance, as an image.", ID, ["id"]),
     "logs": ("The app's recent log lines.", ID, ["id"]),
     "sleep": ("Freeze the instance (no CPU, state kept).", ID, ["id"]),
@@ -459,7 +463,7 @@ def run_tool(name: str, a: dict) -> list:
             else:
                 line = {"tap": f"tap {a.get('target', '')}", "type": f"type {a.get('target', '')}\t{a.get('text', '')}",
                         "scroll": f"scroll {a.get('direction', 'down')}", "wait": f"wait {a.get('ms', 1000)}",
-                        "open": f"open {a.get('target', '')}"}.get(name, name)
+                        "open": f"open {a.get('target', '')}", "network": f"network {a.get('state', '')}"}.get(name, name)
                 print(send(line))
     except SystemExit as e:
         raise RuntimeError(str(e.code) if e.code not in (None, 0) else out.getvalue()) from None
@@ -523,7 +527,7 @@ def main(argv: list[str] | None = None) -> int:
         return stop()
     if cmd in ("build", "pool", "spawn", "_refill", "list", "sleep", "wake", "destroy"):
         return fleet(cmd, rest)
-    if cmd in ("screen", "tap", "type", "scroll", "back", "rotate", "kill", "leaks", "wait", "open", "shot", "logs",
+    if cmd in ("screen", "tap", "type", "scroll", "back", "rotate", "kill", "leaks", "wait", "open", "network", "shot", "logs",
                "crawl"):
         line = " ".join([cmd] + rest)
         if cmd == "type" and len(rest) >= 2:

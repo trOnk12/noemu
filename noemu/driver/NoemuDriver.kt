@@ -148,11 +148,41 @@ class NoemuDriver {
             "rotate" -> { repeat(rest.toIntOrNull() ?: 1) { rotate(); stable(2500) }; "now ${if (landscape) "landscape" else "portrait"}\n" + screen() }
             "wait" -> { settle(rest.toLongOrNull() ?: 1000); stable(); screen() }
             "open" -> openCommand(rest.trim())
+            "network" -> network(rest.trim())
             "shot" -> shot(File(rest.ifBlank { File(out, "screen.png").path }))
             "crawl" -> rest.split(" ").let { a -> crawl(a[0].toIntOrNull() ?: 200, a.getOrNull(1)?.toLongOrNull() ?: 10) }
             "logs" -> ShadowLog.getLogs().takeLast(60).joinToString("\n") { "${it.type.toLevel()} ${it.tag}: ${it.msg}" + (it.throwable?.let { e -> "\n  $e" } ?: "") }
-            else -> "unknown command: $cmd (screen, tap, type, scroll, back, rotate, kill, leaks, wait, open, shot, logs, crawl, quit)"
+            else -> "unknown command: $cmd (screen, tap, type, scroll, back, rotate, kill, leaks, wait, open, network, shot, logs, crawl, quit)"
         }
+    }
+
+    private var network: android.net.Network? = null
+    private var networkInfo: android.net.NetworkInfo? = null
+
+    /** `network off|on`: connections cut and refused or allowed again (Network.kt), and the app told, as by airplane mode. */
+    private fun network(arg: String): String {
+        val on = when (arg) {
+            "on" -> true
+            "off" -> false
+            "" -> return "network ${if (Network.online) "on" else "off"}"
+            else -> return "usage: network on|off"
+        }
+        val cm = app.getSystemService(android.net.ConnectivityManager::class.java)
+        val shadow = org.robolectric.Shadows.shadowOf(cm)
+        if (Network.online) { network = cm.activeNetwork; networkInfo = cm.activeNetworkInfo }
+        Network.set(on)
+        val net = network
+        if (on) online(app) else shadow.setNetworkCapabilities(net, org.robolectric.shadows.ShadowNetworkCapabilities.newInstance())
+        shadow.setActiveNetworkInfo(if (on) networkInfo else org.robolectric.shadows.ShadowNetworkInfo.newInstance(
+            android.net.NetworkInfo.DetailedState.DISCONNECTED, android.net.ConnectivityManager.TYPE_WIFI, 0, true,
+            android.net.NetworkInfo.State.DISCONNECTED))
+        shadow.setDefaultNetworkActive(on)
+        if (net != null) for (callback in shadow.networkCallbacks.toList()) {
+            if (on) { callback.onAvailable(net); cm.getNetworkCapabilities(net)?.let { callback.onCapabilitiesChanged(net, it) } }
+            else callback.onLost(net)
+        }
+        stable()
+        return "network ${if (on) "on" else "off: open connections closed, new ones refused"}\n" + screen()
     }
 
     // ---------------------------------------------------------------------------------------------- the screen

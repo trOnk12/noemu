@@ -125,3 +125,29 @@ a millisecond. Before each command, and before the app launches, it catches up w
 
 A command sent to an asleep instance used to hang for 120 s (the kernel accepts a frozen JVM's connections) and end in
 a traceback. It is now refused in 70 ms, with the command to run.
+
+## Offline, per instance (2026-10-27)
+
+`network off` / `network on` ([Network.kt](../noemu/driver/Network.kt)). The demo's relay screen against the local relay,
+one instance:
+- `network off` took 525 ms (it settles the screen).
+- A run while off: `FAILED`, "Relay health check failed".
+- `network on`, the same run: 34 of 60 accepted after 2 s, `SUCCESS` 60 of 60 by 6 s.
+- A control instance without toggles: 36 of 60 after 4 s, `SUCCESS` by 8 s.
+- In an earlier run, `network off` mid-transfer stopped it at 7 of 60: `FAILED`, "SOCKS: Network unreachable".
+
+[probe/Probe.kt](probe/Probe.kt) checks the driver inside a Robolectric run of the demo module (`bash
+tools/noemu/bench/probe/probe.sh :demo` from the repository root, with the relay on port 18080):
+- HTTPS `GET` to pypi.org and to repo1.maven.org (through this container's HTTP proxy) and to the local relay: all
+  `HTTP 200`.
+- A 20 s long poll, with the network switched off after 1 s: cut after 1008 ms.
+- Off: refused. On again: `HTTP 200`.
+
+Two fixes came out of this:
+- **The name in `CONNECT`.** java.net's SOCKS client sends the address it resolved, not the name. The container's
+  proxy accepted `CONNECT 151.101.64.223:443` and then reset the TLS handshake. Through an HTTP proxy, port 443 now
+  connects by the server name in the TLS ClientHello.
+- **The ClientHello parser.** In Kotlin, `b.position(b.position() + b.get())` reads the position before `get()`
+  advances it, so the first parser skipped one byte short and found no name.
+
+Not exercised here: an app's `NetworkCallback` (the demo registers none).

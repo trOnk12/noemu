@@ -50,7 +50,7 @@ class CliTest(unittest.TestCase):
         self.assertTrue((cli.HERE / "driver" / "NoemuDriver.kt").exists())
         # Robolectric finds RealClock through this file; without it every instance boots at the same uptime, in 1970.
         service = cli.HERE / "driver" / "resources" / "META-INF" / "services" / "org.robolectric.pluginapi.TestEnvironmentLifecyclePlugin"
-        self.assertEqual(service.read_text().strip(), "dev.noemu.RealClock")
+        self.assertEqual(service.read_text().split(), ["dev.noemu.RealClock", "dev.noemu.NetworkPlugin"])
         self.assertTrue((cli.HERE / "driver" / "RealClock.kt").exists())
 
 
@@ -213,6 +213,12 @@ class McpTest(unittest.TestCase):
             self.serve({"jsonrpc": "2.0", "id": 1, "method": "tools/call",
                         "params": {"name": "open", "arguments": {"id": "2", "target": "wire://conversation/1"}}})
         send.assert_called_once_with("open wire://conversation/1")
+
+    def test_network_switches_airplane_mode(self):
+        with mock.patch.object(cli, "send", return_value="network off") as send:
+            self.serve({"jsonrpc": "2.0", "id": 1, "method": "tools/call",
+                        "params": {"name": "network", "arguments": {"id": "2", "state": "off"}}})
+        send.assert_called_once_with("network off")
 
     def test_a_failing_tool_is_a_tool_error_not_a_crash(self):
         reply, = self.serve({"jsonrpc": "2.0", "id": 1, "method": "tools/call",
