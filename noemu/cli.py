@@ -501,6 +501,9 @@ def main(argv: list[str] | None = None) -> int:
         print(__doc__)
         return 0
     cmd, rest = argv[0], argv[1:]
+    if rest[:1] in (["-h"], ["--help"]):  # `noemu build --help` must not start a build
+        print(__doc__)
+        return 0
     if cmd == "mcp":
         return mcp()
     if cmd == "doctor":

@@ -14,6 +14,13 @@ class CliTest(unittest.TestCase):
     def test_help(self):
         self.assertEqual(cli.main(["--help"]), 0)
 
+    def test_help_after_a_command_prints_usage_and_runs_nothing(self):
+        for cmd in ("build", "start", "spawn", "tap"):
+            with mock.patch.object(cli, "fleet") as fleet, mock.patch.object(cli, "start") as start, \
+                    mock.patch.object(cli, "send") as send, contextlib.redirect_stdout(io.StringIO()):
+                self.assertEqual(cli.main([cmd, "--help"]), 0)
+            fleet.assert_not_called(); start.assert_not_called(); send.assert_not_called()
+
     def test_unknown_command(self):
         self.assertEqual(cli.main(["fly"]), 2)
 
