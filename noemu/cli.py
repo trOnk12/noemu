@@ -63,14 +63,23 @@ def send(line: str, timeout: float = 120) -> str:
     port_file = target() / "port"
     if not port_file.exists():
         sys.exit(f"noemu: instance {INSTANCE} isn't running" if INSTANCE else "noemu: not running here; `noemu start` first")
-    with socket.create_connection(("127.0.0.1", int(port_file.read_text())), timeout=timeout) as s:
-        s.sendall((line + "\n").encode())
-        data = b""
-        while not data.endswith(b"\n.\n"):
-            chunk = s.recv(65536)
-            if not chunk:
-                break
-            data += chunk
+    # A frozen JVM accepts the connection (the kernel does) and never answers.
+    state = state_of(target()) if INSTANCE else "running"
+    if state == "pooled":
+        sys.exit(f"noemu: instance {INSTANCE} is asleep in the pool; `noemu spawn` hands out a pooled instance")
+    if state == "asleep":
+        sys.exit(f"noemu: instance {INSTANCE} is asleep; `noemu wake {INSTANCE}` first")
+    try:
+        with socket.create_connection(("127.0.0.1", int(port_file.read_text())), timeout=timeout) as s:
+            s.sendall((line + "\n").encode())
+            data = b""
+            while not data.endswith(b"\n.\n"):
+                chunk = s.recv(65536)
+                if not chunk:
+                    break
+                data += chunk
+    except TimeoutError:
+        sys.exit(f"noemu: no answer in {timeout:.0f} s; the app may be stuck (`noemu logs`, or `noemu destroy` it)")
     return data.decode(errors="replace").removesuffix("\n.\n").rstrip(".\n")
 
 

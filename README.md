@@ -126,9 +126,17 @@ noemu list
 
 `spawn` refills the pool in the background. `build` drops pooled instances of the previous build, so an agent never
 gets old code; instances already handed out keep running until destroyed. Each instance has its own app data
-(Robolectric's temporary directory), removed by `destroy`, and boots at its own random uptime (10 minutes to 3 days),
-as phones do: Robolectric starts every instance at 100 ms, so IDs an app takes from `SystemClock` would repeat across
-instances (two clients of a messaging app claiming the same message id). Settings, per instance at start: `NOEMU_SETTLE_MS` (the longest an
+(Robolectric's temporary directory), removed by `destroy`.
+
+Instances keep real time. Robolectric boots every instance at the same uptime and Android's own code reads it as the
+time of day, so `DateUtils` printed "a minute ago" as a date, notifications were stamped 1970, and IDs an app takes
+from `SystemClock` repeated across instances (two clients of a messaging app claiming the same message id). Each
+instance's clock now starts at the real time (plus a random fraction of a millisecond, so instances started together
+still differ), and before each command it moves on by the real time that passed, as a phone's clock does while the
+agent thinks or the instance sleeps; timers due by then run once. A command to an instance that is asleep fails at
+once and says what to run.
+
+Settings, per instance at start: `NOEMU_SETTLE_MS` (the longest an
 action waits for the screen to settle, default 4000; numbers that keep changing, like a clock or a timer, don't count
 as unsettled),
 `NOEMU_SHOTS=0` (no screenshot after every action), `NOEMU_IDLE_MIN` (an instance no agent has used for that many

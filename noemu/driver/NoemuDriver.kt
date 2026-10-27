@@ -77,6 +77,7 @@ class NoemuDriver {
             ?: app.packageManager.getLaunchIntentForPackage(app.packageName)
             ?: error("no launcher activity; pass --activity")
         System.getProperty("noemu.data")?.let { launch.setAction(Intent.ACTION_VIEW).setData(android.net.Uri.parse(it)) }
+        catchUp()  // the seconds Robolectric took to get here
         // A crash at launch is the app's answer to `start`: keep its whole trace where noemu.py prints it.
         runCatching { open(Intent(launch)) }.onFailure { File(out, "crash.txt").writeText(it.stackTraceToString()); throw it }
         println("noemu: app launched after ${System.currentTimeMillis() - jvmStart} ms")
@@ -115,6 +116,7 @@ class NoemuDriver {
             if (line.trim() == "quit") {
                 writer.println("bye\n."); socket.close(); break
             }
+            catchUp()
             var reply = runCatching { handle(line.trim()) }.getOrElse { System.err.println(it.stackTraceToString()); "error: $it" }
             // A crash on another thread or in a posted task, which the command itself didn't see.
             synchronized(backgroundCrashes) { backgroundCrashes.toList().also { backgroundCrashes.clear() } }
@@ -735,6 +737,18 @@ class NoemuDriver {
             if (same >= 2) return
             last = now
         }
+    }
+
+    /**
+     * Virtual time stands still between commands, and a phone's clock doesn't: before each command the app's clocks catch
+     * up with the real time that passed (also asleep in the pool), and timers due by then run once, as after a phone
+     * wakes. Settling can leave virtual time ahead of the real time; it never goes back.
+     */
+    private fun catchUp() {
+        val behind = System.currentTimeMillis() - android.os.SystemClock.uptimeMillis()
+        if (behind <= 0) return
+        org.robolectric.shadows.ShadowSystemClock.advanceBy(Duration.ofMillis(behind))
+        ShadowLooper.idleMainLooper()
     }
 
     /** Lets the app run: main looper tasks, frames and animations for [ms] of virtual time. */

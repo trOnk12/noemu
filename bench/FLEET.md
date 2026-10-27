@@ -101,3 +101,27 @@ instance had booted at Robolectric's 100 ms and been advanced the same way, so t
 session. Each instance now boots at a random uptime (a Robolectric `TestEnvironmentLifecyclePlugin`, run before the
 app is created): three instances in a row each got their own session and all three succeeded. One put to sleep for
 30 s at 9 of 60 accepted woke, carried on and finished 60 of 60.
+
+## Real time (2026-10-27)
+
+A random uptime fixed the repeated IDs but left two things wrong.
+- **The time of day.** With the paused looper, `System.currentTimeMillis()` in Android's own code is the uptime. In a
+  Robolectric test on the demo module, `DateUtils.getRelativeTimeSpanString(a minute ago)` returned "Oct 27, 2026" and
+  `Notification.when` was 172417001 (January 1970).
+- **Time between commands.** Virtual time moved only while an action settled. Two `screen` reads 10 s apart showed
+  the same demo playback time.
+
+Now each instance's clock starts at the real time (the uptime, as Robolectric ties the two), plus a random fraction of
+a millisecond. Before each command, and before the app launches, it catches up with the real time. Results:
+- `DateUtils` gave "1 minute ago", and `Notification.when` was the real time.
+- 10 s between two `screen` reads moved the demo's playback from `t = 800 ms` to `t = 3775 ms`.
+- An instance asleep in the pool for 60 s caught up 71.9 s on its first command and answered `spawn` + `screen` in
+  1.0 s.
+- Between commands the clock was 0.1-1.4 s behind the real time (settling runs slower than real time); it was never
+  ahead.
+- Three instances on one relay each got their own session, and all three succeeded.
+- Taps, the old build against the new one, alternating, with screenshots off, at load average 7: 564-1688 (median 630)
+  against 572-760 ms (median 680), within the noise.
+
+A command sent to an asleep instance used to hang for 120 s (the kernel accepts a frozen JVM's connections) and end in
+a traceback. It is now refused in 70 ms, with the command to run.

@@ -48,10 +48,10 @@ class CliTest(unittest.TestCase):
     def test_driver_and_init_script_ship_with_the_package(self):
         self.assertTrue((cli.HERE / "noemu.init.gradle").exists())
         self.assertTrue((cli.HERE / "driver" / "NoemuDriver.kt").exists())
-        # Robolectric finds DistinctUptime through this file; without it every instance boots at the same uptime.
+        # Robolectric finds RealClock through this file; without it every instance boots at the same uptime, in 1970.
         service = cli.HERE / "driver" / "resources" / "META-INF" / "services" / "org.robolectric.pluginapi.TestEnvironmentLifecyclePlugin"
-        self.assertEqual(service.read_text().strip(), "dev.noemu.DistinctUptime")
-        self.assertTrue((cli.HERE / "driver" / "DistinctUptime.kt").exists())
+        self.assertEqual(service.read_text().strip(), "dev.noemu.RealClock")
+        self.assertTrue((cli.HERE / "driver" / "RealClock.kt").exists())
 
 
 class FleetTest(unittest.TestCase):
@@ -90,6 +90,23 @@ class FleetTest(unittest.TestCase):
                 with mock.patch.dict(os.environ, env), self.assertRaises(OSError):
                     cli.main(argv)
                 self.assertEqual(connect.call_args.args[0], ("127.0.0.1", 4333))
+
+    def test_a_frozen_instance_is_refused_at_once_not_waited_on(self):
+        self.instance("4", "pooled")
+        self.instance("5", "asleep")
+        with mock.patch.object(cli.socket, "create_connection") as connect:
+            for name, hint in (("4", "noemu spawn"), ("5", "noemu wake 5")):
+                with self.assertRaises(SystemExit) as e:
+                    cli.main(["--id", name, "screen"])
+                self.assertIn(hint, str(e.exception))
+        connect.assert_not_called()
+
+    def test_no_answer_is_a_message_not_a_traceback(self):
+        self.instance("6", "running")
+        with mock.patch.object(cli.socket, "create_connection", side_effect=TimeoutError("timed out")):
+            with self.assertRaises(SystemExit) as e:
+                cli.main(["--id", "6", "screen"])
+        self.assertIn("no answer", str(e.exception))
 
     def test_spawn_takes_a_pooled_instance_of_the_current_build(self):
         self.instance("0", "pooled", build="old")
