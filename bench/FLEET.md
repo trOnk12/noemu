@@ -75,3 +75,18 @@ on 4 cores): taps answered in 834-928 ms. Nothing new in the shared temporary di
 `NOEMU_IDLE_MIN=0.25`: a spawned instance left without commands ended after 16 s; a pooled one asleep for 40 s was
 alive when spawned, answered a tap, and ended 16 s after it. The driver counts idle time in 2 s ticks and skips a tick
 that took far longer (the process was frozen), so time in the pool isn't idle time.
+
+## Tried, not adopted (2026-10-27)
+
+Same demo and machine, which was also running a 9-process batch job (load average 8 on 4 cores), so the times vary.
+
+- **Class data sharing** (a dynamic CDS archive of the instance's classes, 100 MB): cold start 7.9-9.8 s against
+  9.6-12.6 s without, alternating three of each; 375 MB against 386 MB. CDS refuses classpath directories, so Gradle's
+  class directories had to be packed into jars first, and the archive is only written when an instance exits by
+  itself. Robolectric loads Android's classes (about 6 s of the start) through its own class loader, which the
+  archive doesn't cover. About 1.5 s off a cold start, when a spawn from the pool takes 0.4 s, isn't worth that.
+- **Giving heap back before sleeping:** on the relay screen, 469 MB; after a full GC 421 MB with the serial
+  collector's defaults and 423 MB with `-XX:MinHeapFreeRatio=10 -XX:MaxHeapFreeRatio=20`. Of what remains, the live
+  heap is about 100 MB and class metadata about 94 MB.
+- **Checkpoint/restore** (CRIU or CRaC, to start instances from a snapshot of a running one): not installed here; it
+  needs Linux with checkpoint privileges, or a CRaC JDK, and doesn't run on macOS.
