@@ -219,6 +219,10 @@ class McpTest(unittest.TestCase):
             self.serve({"jsonrpc": "2.0", "id": 1, "method": "tools/call",
                         "params": {"name": "network", "arguments": {"id": "2", "state": "off"}}})
         send.assert_called_once_with("network off")
+        with mock.patch.object(cli, "send", return_value="network delay 300 ms") as send:
+            self.serve({"jsonrpc": "2.0", "id": 2, "method": "tools/call",
+                        "params": {"name": "network", "arguments": {"id": "2", "state": "slow", "delay_ms": 300}}})
+        send.assert_called_once_with("network slow 300")
 
     def test_a_failing_tool_is_a_tool_error_not_a_crash(self):
         reply, = self.serve({"jsonrpc": "2.0", "id": 1, "method": "tools/call",

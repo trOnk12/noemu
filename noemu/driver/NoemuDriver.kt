@@ -161,11 +161,15 @@ class NoemuDriver {
 
     /** `network off|on`: connections cut and refused or allowed again (Network.kt), and the app told, as by airplane mode. */
     private fun network(arg: String): String {
+        if (arg.startsWith("slow")) {
+            Network.delayMs = arg.removePrefix("slow").trim().toLongOrNull() ?: return "usage: network slow MS (0: no delay)"
+            return "network delay ${Network.delayMs} ms each way"
+        }
         val on = when (arg) {
             "on" -> true
             "off" -> false
-            "" -> return "network ${if (Network.online) "on" else "off"}"
-            else -> return "usage: network on|off"
+            "" -> return "network ${if (Network.online) "on" else "off"}, delay ${Network.delayMs} ms each way"
+            else -> return "usage: network on|off|slow MS"
         }
         val cm = app.getSystemService(android.net.ConnectivityManager::class.java)
         val shadow = org.robolectric.Shadows.shadowOf(cm)

@@ -151,3 +151,6 @@ Two fixes came out of this:
   advances it, so the first parser skipped one byte short and found no name.
 
 Not exercised here: an app's `NetworkCallback` (the demo registers none).
+
+`network slow MS` sleeps MS before forwarding each chunk, in both directions. The same 60-message round trip, from the
+tap to `SUCCESS`, a fresh instance each: 7 s with no delay, 19 s at 100 ms, and 8 s after setting it back to 0.

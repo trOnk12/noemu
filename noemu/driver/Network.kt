@@ -27,6 +27,8 @@ import org.robolectric.pluginapi.TestEnvironmentLifecyclePlugin
 object Network {
     @Volatile var online = true
         private set
+    /** Added to every chunk in each direction (`network slow MS`), so a round trip takes about twice this longer. */
+    @Volatile var delayMs = 0L
     private val open: MutableSet<Socket> = ConcurrentHashMap.newKeySet()
     private var upstream: ProxySelector? = null
 
@@ -148,7 +150,14 @@ object Network {
 
     private fun pipe(from: InputStream, to: OutputStream) {
         val buffer = ByteArray(16384)
-        runCatching { while (true) { val n = from.read(buffer); if (n < 0) break; to.write(buffer, 0, n); to.flush() } }
+        runCatching {
+            while (true) {
+                val n = from.read(buffer)
+                if (n < 0) break
+                delayMs.takeIf { it > 0 }?.let { Thread.sleep(it) }
+                to.write(buffer, 0, n); to.flush()
+            }
+        }
     }
 }
 
