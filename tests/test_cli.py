@@ -48,6 +48,10 @@ class CliTest(unittest.TestCase):
     def test_driver_and_init_script_ship_with_the_package(self):
         self.assertTrue((cli.HERE / "noemu.init.gradle").exists())
         self.assertTrue((cli.HERE / "driver" / "NoemuDriver.kt").exists())
+        # Robolectric finds DistinctUptime through this file; without it every instance boots at the same uptime.
+        service = cli.HERE / "driver" / "resources" / "META-INF" / "services" / "org.robolectric.pluginapi.TestEnvironmentLifecyclePlugin"
+        self.assertEqual(service.read_text().strip(), "dev.noemu.DistinctUptime")
+        self.assertTrue((cli.HERE / "driver" / "DistinctUptime.kt").exists())
 
 
 class FleetTest(unittest.TestCase):

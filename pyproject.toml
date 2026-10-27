@@ -19,4 +19,4 @@ noemu = "noemu.cli:entry"
 packages = ["noemu"]
 
 [tool.setuptools.package-data]
-noemu = ["noemu.init.gradle", "driver/*.kt"]
+noemu = ["noemu.init.gradle", "driver/*.kt", "driver/resources/META-INF/services/*"]

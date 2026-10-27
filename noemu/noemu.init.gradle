@@ -8,6 +8,7 @@ def configure = { Project p ->
         println("noemu: adding $driver/driver to ${p.path} test sources")
         p.android.sourceSets.test.java.srcDir("$driver/driver")
         p.android.sourceSets.test.kotlin.srcDir("$driver/driver")
+        p.android.sourceSets.test.resources.srcDir("$driver/driver/resources")  // Robolectric plugins (DistinctUptime)
         p.dependencies {
             testImplementation "org.robolectric:robolectric:4.16"
             testImplementation "androidx.test:core-ktx:1.6.1"

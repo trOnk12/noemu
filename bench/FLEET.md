@@ -90,3 +90,14 @@ Same demo and machine, which was also running a 9-process batch job (load averag
   heap is about 100 MB and class metadata about 94 MB.
 - **Checkpoint/restore** (CRIU or CRaC, to start instances from a snapshot of a running one): not installed here; it
   needs Linux with checkpoint privileges, or a CRaC JDK, and doesn't run on macOS.
+
+## Instances on one real server (2026-10-27)
+
+The demo's relay screen sends 60 observations over HTTP to the repository's local relay (`:relay:run`) and reads them
+back, on background coroutines; the screen updates between agent commands. One instance: `SUCCESS`, 60 of 60, and the
+relay held the session's 60 observations. A second instance then **failed**: "Message android-1ajz7wg:0 was already
+accepted with another payload". The demo names its session after `SystemClock.elapsedRealtimeNanos()`, and every
+instance had booted at Robolectric's 100 ms and been advanced the same way, so the second claimed the first one's
+session. Each instance now boots at a random uptime (a Robolectric `TestEnvironmentLifecyclePlugin`, run before the
+app is created): three instances in a row each got their own session and all three succeeded. One put to sleep for
+30 s at 9 of 60 accepted woke, carried on and finished 60 of 60.
