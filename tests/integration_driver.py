@@ -85,6 +85,20 @@ class DriverIntegrationTest(unittest.TestCase):
         self.assertEqual(result["status"], "passed", result)
         self.assertTrue(any(text in e["label"] for e in result["observation"]["elements"]), result)
 
+    def test_generated_ids_keep_references_without_inventing_resource_names(self):
+        elements = self.screen()
+        good, = [e for e in elements if e["editable"] and "Good input" in e["label"]]
+        bad, = [e for e in elements if e["editable"] and "Broken input" in e["label"]]
+        if MODULE == "views":
+            self.assertIsNone(good["selector"])
+            self.assertEqual(bad["selector"], "id:dev.noemu.fixture.views:id/broken_input")
+        else:
+            self.assertEqual(good["selector"], "tag:good")
+            self.assertEqual(bad["selector"], "tag:bad")
+        result = self.act("type", good["ref"], "generated-id-field")
+        self.assertEqual(result["status"], "passed", result)
+        self.assertTrue(any("generated-id-field" in e["label"] for e in result["observation"]["elements"]))
+
     def test_rotation_distinguishes_saved_and_broken_state(self):
         self.assertEqual(self.act("type", self.field("Good input"), "kept-token")["status"], "passed")
         self.assertEqual(self.act("type", self.field("Broken input"), "lost-token")["status"], "passed")

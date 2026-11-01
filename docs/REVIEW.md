@@ -14,7 +14,7 @@ implement the supervisor, replay, Android verification, or experiment engine.
 
 Read [VALIDATION.md](VALIDATION.md), [PROTOCOL.md](PROTOCOL.md), and
 [ROADMAP.md](ROADMAP.md) before extending the implementation. The latest recorded
-local suite has 63 passing Python tests. Wheel smoke checks reused dependencies.
+local suite has 67 passing Python tests. Wheel smoke checks reused dependencies.
 Installed MCP stdio initialization timed out. Kotlin and live-driver validation
 have not passed. GitHub Actions jobs were blocked before execution by an account
 billing issue; this is not evidence for or against the code's runtime correctness.

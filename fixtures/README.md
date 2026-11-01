@@ -5,6 +5,9 @@ contain a field that saves its text, a deliberately broken field that loses text
 on recreation, disabled and duplicate buttons, a horizontal list, and a button
 that deliberately throws `fixture deliberate crash`. The Views app also has a
 hidden button. Neither app requires an external service.
+The Views fields use both a generated View ID and a compiled resource ID. The
+integration gate checks that generated IDs remain observable and actionable via
+observation references, while only compiled IDs receive resource-name selectors.
 
 Use JDK 21, Android SDK platform 35 and build tools 35.0.0, and Gradle 8.11.1.
 Generate the standard Gradle wrapper once (generated wrapper files are ignored):

@@ -11,7 +11,7 @@ needed for editing and was not downloaded. It is not removed from the upstream t
 The baseline was **23 Python tests passing**. The first safety work unit passed
 **30 tests**, including real child-process checks for signaling and cleanup.
 The initial expanded suite passed **44 tests in 0.551 seconds**. Follow-up
-regressions on 2026-11-01 passed **63 tests in 0.309 seconds** in this Linux environment.
+regressions on 2026-11-01 passed **67 tests in 0.396 seconds** in this Linux environment.
 A wheel built successfully and its installed CLI, MCP import, Kotlin sources, init
 script, and service resources passed a smoke check outside the source directory.
 That offline smoke environment reused installed dependencies; it is not a clean
@@ -21,7 +21,7 @@ dependency-resolution test. No Android-conformance or performance result is clai
 
 | Check | Status |
 | --- | --- |
-| Existing Python regressions and new safety/protocol/MCP/benchmark tests | Passed locally (63 tests) |
+| Existing Python regressions and new safety/protocol/MCP/benchmark tests | Passed locally (67 tests) |
 | Wheel build and installed-package resource smoke check | Passed locally; existing dependencies reused |
 | Installed MCP stdio integration | Failed locally: initialization response timed out after 10 seconds in the restricted sandbox |
 | Fully isolated install with freshly resolved dependencies | Pending CI |
@@ -61,6 +61,17 @@ required Kotlin, live-driver, and isolated-install gate from establishing an out
 - Missing/invalid driver ports and socket failures now produce typed errors.
   Regressions distinguish connection refusal before dispatch from failures during
   sending or receiving, where the execution outcome remains unknown.
+- Resident memory now comes from the verified process through psutil. An unreadable
+  measurement is `memory unknown` rather than zero. Real Linux child-process tests
+  cover running and sleeping processes, identity mismatch, and denied measurement.
+  macOS execution remains unverified.
+
+The driver observation code also now catches only `Resources.NotFoundException`
+when a View ID has no compiled resource name. Generated IDs retain their observation
+references and receive no invented resource selector. The Views fixture uses both
+generated and resource IDs, with an integration regression covering observation and
+typing. **This Kotlin change is unverified.** The attempted fixture run failed its
+prerequisite check (`fixture wrapper missing`) and executed zero driver tests.
 
 The updated wheel was installed into a separate virtual environment reusing
 available dependencies, and its CLI, imports, and packaged resources passed checks

@@ -20,8 +20,11 @@ class MainActivity : Activity() {
         }
         val status = TextView(this).apply { text = "ready" }
         column.addView(status)
-        good = EditText(this).apply { hint = "Good input"; setText(state?.getString("good")); isSaveEnabled = false }
-        bad = EditText(this).apply { hint = "Broken input"; isSaveEnabled = false }
+        good = EditText(this).apply {
+            id = View.generateViewId() // A valid View identity without a compiled resource name.
+            hint = "Good input"; setText(state?.getString("good")); isSaveEnabled = false
+        }
+        bad = EditText(this).apply { id = R.id.broken_input; hint = "Broken input"; isSaveEnabled = false }
         column.addView(good)
         column.addView(bad)
         button("Disabled") { status.text = "BUG: disabled clicked" }.isEnabled = false

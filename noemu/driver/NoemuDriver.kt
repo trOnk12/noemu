@@ -312,11 +312,18 @@ class NoemuDriver {
         if (label.isNotBlank() || view.isClickable || view is EditText || horizontal || vertical) {
             val state = (view as? android.widget.Checkable)?.let { if (it.isChecked) "on" else "off" }
                 ?: if (view.isSelected) "selected" else null
+            // View.generateViewId() supplies identity without an R resource.
+            // Keep the observation reference; do not invent a resource selector.
+            val selector = if (view.id == View.NO_ID) null else try {
+                "id:${view.resources.getResourceName(view.id)}"
+            } catch (_: android.content.res.Resources.NotFoundException) {
+                null
+            }
             found += Element(label.ifBlank { view.contentDescription?.toString().orEmpty() }, kind, r, state = state,
                 click = if (view.isClickable) ({ if (!view.performClick()) throw DriverFailure("action_rejected", "view rejected click") }) else null,
                 setText = if (view is EditText) ({ t -> view.setText(t) }) else null,
                 enabled = view.isEnabled, identity = view,
-                selector = if (view.id == View.NO_ID) null else "id:${view.resources.getResourceName(view.id)}",
+                selector = selector,
                 horizontal = horizontal, vertical = vertical,
                 scroll = if (horizontal || vertical) ({ dx, dy -> view.scrollBy(dx, dy) }) else null)
         }
