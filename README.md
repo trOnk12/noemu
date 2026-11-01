@@ -153,6 +153,8 @@ has **no shared resource scheduler or immutable build snapshot**. Do not treat i
 as the isolation and cross-worktree lease system described in milestone B.
 Sleeping JVMs retain memory. A changed build can still invalidate paths used by
 older instances; concurrent revision comparison must wait for immutable generations.
+Memory output is resident memory in MiB for the verified process. An unavailable
+measurement is shown as `memory unknown`, never as zero usage.
 
 ## MCP integration
 

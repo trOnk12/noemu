@@ -2,6 +2,7 @@ import contextlib
 import io
 import json
 import os
+import signal
 import subprocess
 import tempfile
 import unittest
@@ -61,6 +62,28 @@ class ProcessSafetyTest(unittest.TestCase):
         with self.assertRaises(processes.ProcessIdentityError):
             processes.terminate(self.directory)
         self.assertIsNone(self.process.poll())
+
+    def test_memory_requires_verified_identity(self):
+        (self.directory / "pid").write_text(str(self.process.pid))
+        self.assertIsNone(processes.resident_memory(self.directory))
+        processes.remember(self.directory, self.process.pid)
+        self.assertGreater(processes.resident_memory(self.directory), 0)
+        identity_path = self.directory / "process.json"
+        identity = json.loads(identity_path.read_text())
+        identity["created"] -= 10
+        identity_path.write_text(json.dumps(identity))
+        self.assertIsNone(processes.resident_memory(self.directory))
+
+    def test_sleeping_process_memory_does_not_disappear(self):
+        processes.remember(self.directory, self.process.pid)
+        processes.send_signal(self.directory, signal.SIGSTOP)
+        self.assertGreater(processes.resident_memory(self.directory), 0)
+
+    def test_unreadable_memory_is_unknown_not_zero(self):
+        process = mock.Mock()
+        process.memory_info.side_effect = processes.psutil.AccessDenied(self.process.pid)
+        with mock.patch.object(processes, "verified", return_value=process):
+            self.assertIsNone(processes.resident_memory(self.directory))
 
     def test_destroy_waits_for_exit_and_does_not_delete_unowned_data(self):
         processes.remember(self.directory, self.process.pid)

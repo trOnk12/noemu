@@ -133,6 +133,14 @@ class FleetTest(unittest.TestCase):
             p.wait(timeout=5)
         self.assertEqual(cli.instances(), [])
 
+    def test_list_distinguishes_unavailable_memory_from_zero(self):
+        self.instance("0", "running")
+        with mock.patch.object(cli.processes, "resident_memory", return_value=None), \
+                contextlib.redirect_stdout(io.StringIO()) as output:
+            cli.main(["list"])
+        self.assertIn("memory unknown", output.getvalue())
+        self.assertNotIn("0 MB", output.getvalue())
+
     def test_destroy_removes_the_instance_s_temporary_app_data(self):
         d = self.instance("0", "running")
         data = d / "tmp" / "robolectric-NoemuDriver_serve1" / "com.x-dataDir"

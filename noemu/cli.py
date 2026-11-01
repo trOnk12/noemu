@@ -284,11 +284,9 @@ def destroy_one(d: Path) -> None:
         shutil.rmtree(temporary)
 
 
-def memory(d: Path) -> int:
-    try:
-        return int(Path(f"/proc/{(d / 'pid').read_text()}/status").read_text().split("VmRSS:")[1].split()[0]) // 1024
-    except (OSError, IndexError, ValueError):
-        return 0
+def memory(d: Path) -> str:
+    size = processes.resident_memory(d)
+    return "memory unknown" if size is None else f"{size / (1024 * 1024):.1f} MiB"
 
 
 def pool(n: int) -> int:
@@ -300,7 +298,7 @@ def pool(n: int) -> int:
     for d in dirs:
         if (d / "port").exists():
             signal_to(d, signal.SIGSTOP, "pooled")
-            print(f"{d.name}: in the pool after {time.time() - t0:.0f}s, {memory(d)} MB")
+            print(f"{d.name}: in the pool after {time.time() - t0:.0f}s, {memory(d)}")
         else:
             failed = True
             if alive(d):
@@ -356,7 +354,7 @@ def fleet(cmd: str, rest: list[str]) -> int:
             raise NoemuError("invalid_argument", "list takes no arguments")
         for d in instances():
             port = (d / "port").read_text() if (d / "port").exists() else "-"
-            print(f"{d.name}\t{state_of(d)}\tport {port}\t{memory(d)} MB")
+            print(f"{d.name}\t{state_of(d)}\tport {port}\t{memory(d)}")
         return 0
     if not rest:
         sys.exit(f"noemu: {cmd} needs an instance id (noemu list)")

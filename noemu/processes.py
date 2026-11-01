@@ -49,6 +49,14 @@ def alive(directory: Path) -> bool:
         return False
 
 
+def resident_memory(directory: Path) -> int | None:
+    """Resident bytes for the verified process, or unknown when it cannot be read."""
+    try:
+        return verified(directory).memory_info().rss
+    except (ProcessIdentityError, OSError, psutil.Error):
+        return None
+
+
 def send_signal(directory: Path, sig: int) -> None:
     process = verified(directory)
     if hasattr(os, "pidfd_open") and hasattr(signal, "pidfd_send_signal"):
