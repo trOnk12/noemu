@@ -43,6 +43,10 @@ class InstalledStdioTest(unittest.TestCase):
                 send({"jsonrpc": "2.0", "method": "notifications/initialized"})
                 for malformed in ("{", "[]", "null"):
                     send(malformed)
+                # A malformed byte sequence must not kill the transport or be
+                # silently replaced inside a tool argument.
+                process.stdin.buffer.write(b'{"text":"\xff"}\n')
+                process.stdin.buffer.flush()
                 send({"jsonrpc": "2.0", "id": 2, "method": "tools/list"})
                 self.assertIn("tap", {tool["name"] for tool in response(2)["result"]["tools"]})
                 send({"jsonrpc": "2.0", "id": 3, "method": "tools/call",

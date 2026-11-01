@@ -14,7 +14,10 @@ from noemu.protocol import MAX_MESSAGE_BYTES, NoemuError
 class BoundedInput:
     """Bound memory before the SDK parses JSON. Discard an oversized line."""
     def __init__(self, stream):
-        self.stream = stream
+        # Decode after framing: TextIOWrapper can raise on invalid UTF-8 before
+        # the SDK sees a request, terminating the whole server task group.
+        self._source = stream  # Keep the wrapper alive; it owns the binary buffer.
+        self.stream = getattr(stream, "buffer", stream)
 
     def __aiter__(self):
         return self
@@ -23,12 +26,15 @@ class BoundedInput:
         line = await anyio.to_thread.run_sync(self.stream.readline, MAX_MESSAGE_BYTES + 1)
         if not line:
             raise StopAsyncIteration
-        if len(line.encode("utf-8")) > MAX_MESSAGE_BYTES:
-            while line and not line.endswith("\n"):
+        if len(line) > MAX_MESSAGE_BYTES:
+            while line and not line.endswith(b"\n"):
                 line = await anyio.to_thread.run_sync(self.stream.readline, MAX_MESSAGE_BYTES + 1)
             # Pass a parse failure to the SDK, which reports it and continues.
             return "{\n"
-        return line
+        try:
+            return line.decode("utf-8")
+        except UnicodeDecodeError:
+            return "{\n"
 
 
 async def serve() -> None:
