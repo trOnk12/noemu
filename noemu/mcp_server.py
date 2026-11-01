@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import sys
+from importlib.metadata import PackageNotFoundError, version
 
 import anyio
 from mcp import types
@@ -40,7 +41,11 @@ class BoundedInput:
 async def serve() -> None:
     from noemu import cli
 
-    server = Server("noemu", version="0.2.0")
+    try:
+        package_version = version("noemu")
+    except PackageNotFoundError:
+        package_version = "0+uninstalled"
+    server = Server("noemu", version=package_version)
     lock = anyio.Lock()
 
     @server.list_tools()
