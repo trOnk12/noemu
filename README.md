@@ -11,13 +11,17 @@ The goal is to make Android behavior as easy to explore, reproduce, and compare
 as source code. A successful JVM operation establishes what happened in that
 simulation. Verification on Android is a separate, planned capability.
 
-> **Development status:** milestone A, foundation repair. The current fleet is
-> experimental. The shared supervisor, immutable build generations, replay engine,
-> and Android verification adapter are not implemented. See the
-> [roadmap](docs/ROADMAP.md) and [validation record](docs/VALIDATION.md) for exit gates
-> and the checks actually run.
+> **Experimental development branch — [draft PR #1](https://github.com/trOnk12/noemu/pull/1).**
+> Milestone A is incomplete. Python regressions pass locally; Kotlin compilation
+> and live-driver checks remain unverified, and the installed MCP stdio check
+> timed out in the local test environment. The shared supervisor, immutable builds,
+> replay engine, and Android verification adapter are planned. Read the
+> [validation record](docs/VALIDATION.md) before relying on verification results.
 
-## What you can do today
+## Implemented interfaces
+
+The following interfaces exist in this branch. Their presence does not establish
+Android compatibility; the fixture and platform checks are tracked separately.
 
 - Launch an Android source project on the JVM using its Gradle build.
 - Inspect visible elements from Views and Compose semantics.
@@ -45,14 +49,17 @@ hardware, graphics, and operating-system behavior may be unavailable or differ.
 
 ## Install
 
+To evaluate the draft implementation described here, select its branch explicitly.
+The default branch does not yet contain these changes.
+
 ```sh
-pipx install git+https://github.com/trOnk12/noemu.git
+pipx install 'git+https://github.com/trOnk12/noemu.git@codex/noemu-foundation'
 ```
 
 For development, install the checked-out revision:
 
 ```sh
-git clone https://github.com/trOnk12/noemu.git
+git clone --branch codex/noemu-foundation https://github.com/trOnk12/noemu.git
 cd noemu
 python -m venv .venv
 . .venv/bin/activate
@@ -191,6 +198,9 @@ For `network`, `delay_ms` is required with `state: "slow"` and rejected otherwis
 | `NOEMU_DEPS` | Comma-separated test-runtime dependencies, such as host-native alternatives. |
 
 ## Development and verification
+
+Start with the [review and continuation guide](docs/REVIEW.md) for the current
+scope, exact checks, and open review questions.
 
 ```sh
 python -m pip install -e . build
