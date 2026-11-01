@@ -2,3 +2,13 @@ __pycache__/
 *.egg-info/
 build/
 dist/
+
+.venv*/
+dist/
+build/
+*.egg-info/
+.gradle/
+fixtures/gradlew
+fixtures/gradlew.bat
+fixtures/gradle/wrapper/
+fixtures/*/build/

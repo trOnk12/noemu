@@ -1,11 +1,71 @@
 name: test
 on: [push, pull_request]
+permissions:
+  contents: read
 jobs:
-  cli:
-    runs-on: ubuntu-latest
+  python:
+    strategy:
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+        python: ['3.10', '3.12']
+    runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with:
-          python-version: "3.12"
+          python-version: ${{ matrix.python }}
+      - run: python -m pip install . build
       - run: python -m unittest discover -s tests -t . -v
+      - run: python tests/mcp_stdio.py
+      - run: python -m build
+      - name: Install wheel outside the source checkout
+        shell: bash
+        run: |
+          python -m venv "$RUNNER_TEMP/noemu-install"
+          "$RUNNER_TEMP/noemu-install/bin/python" -m pip install dist/*.whl
+          cd "$RUNNER_TEMP"
+          "$RUNNER_TEMP/noemu-install/bin/noemu" --help
+          "$RUNNER_TEMP/noemu-install/bin/python" -c 'from importlib.resources import files; p = files("noemu"); assert (p / "driver/Protocol.kt").is_file(); assert (p / "driver/NoemuDriver.kt").is_file(); assert (p / "noemu.init.gradle").is_file(); import noemu.mcp_server'
+  driver:
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    strategy:
+      fail-fast: false
+      matrix:
+        fixture: [views, compose]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+      - uses: android-actions/setup-android@v3
+      - run: sdkmanager 'platforms;android-35' 'build-tools;35.0.0'
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.11.1'
+      - run: python -m pip install .
+      - run: gradle -p fixtures wrapper --gradle-version 8.11.1
+      - name: Kotlin protocol contracts
+        working-directory: fixtures
+        run: ./gradlew -I ../noemu/noemu.init.gradle -Dnoemu.driver="$PWD/../noemu" -Dnoemu.module=:${{ matrix.fixture }} :${{ matrix.fixture }}:testDebugUnitTest --tests dev.noemu.ProtocolTest
+      - name: Driver behavior against maintained fixtures
+        env:
+          NOEMU_FIXTURE: ${{ matrix.fixture }}
+          NOEMU_SHOTS: '0'
+        run: python tests/integration_driver.py
+      - name: Retain logs and incomplete runs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: driver-${{ matrix.fixture }}
+          include-hidden-files: true
+          path: |
+            fixtures/.gradle/noemu/
+            fixtures/.gradle/noemu-fleet/
+            fixtures/*/build/reports/tests/
+            fixtures/*/build/test-results/
+          retention-days: 7
