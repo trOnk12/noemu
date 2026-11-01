@@ -140,3 +140,21 @@ Every work unit follows: inspect → define acceptance → reproduce/baseline �
 complete change → relevant checks → evidence and limitations. Advance only when the
 current milestone's exit gate passes. No wholesale runtime rewrite, permanent fork,
 cloud service, or arbitrary JVM snapshots are part of the initial implementation.
+
+## Product review at each milestone
+
+Before closing a milestone, answer these questions in its evidence report:
+
+1. Which real developer or agent workflow becomes easier, and what can the user
+   now accomplish that was previously unreliable or impractical?
+2. What advantage does the complete NoEmu workflow demonstrate over a direct
+   Robolectric session or a capped emulator workflow? Separate measured advantages
+   from hypotheses; speed alone is insufficient when verification is inaccurate.
+3. What reproducible evidence supports the claim, including negative cases,
+   unsupported behavior, resource cost, and incomplete runs?
+4. What is the smallest next improvement that addresses a demonstrated user need?
+   Keep it within the ordered roadmap and the current milestone's exit gate.
+
+Use these answers to prioritize work autonomously. A distinctive feature earns
+its place by improving a workflow and passing its checks, not by expanding the
+feature list or strengthening the wording of an unverified claim.
