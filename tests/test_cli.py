@@ -89,7 +89,7 @@ class FleetTest(unittest.TestCase):
         self.instance("3", "running", port="4333")
         with mock.patch.object(cli.socket, "create_connection", side_effect=OSError("stop")) as connect:
             for argv, env in ((["--id", "3", "screen"], {}), (["screen"], {"NOEMU_ID": "3"})):
-                with mock.patch.dict(os.environ, env), self.assertRaises(OSError):
+                with mock.patch.dict(os.environ, env), self.assertRaises(cli.NoemuError):
                     cli.main(argv)
                 self.assertEqual(connect.call_args.args[0], ("127.0.0.1", 4333))
 
@@ -98,7 +98,7 @@ class FleetTest(unittest.TestCase):
         self.instance("5", "asleep")
         with mock.patch.object(cli.socket, "create_connection") as connect:
             for name, hint in (("4", "noemu spawn"), ("5", "noemu wake 5")):
-                with self.assertRaises(SystemExit) as e:
+                with self.assertRaises(cli.NoemuError) as e:
                     cli.main(["--id", name, "screen"])
                 self.assertIn(hint, str(e.exception))
         connect.assert_not_called()

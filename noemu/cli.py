@@ -80,22 +80,27 @@ def request(command: Command, timeout: float = 120) -> Result:
     payload = command.encode(request_id, timeout)
     port_file = target() / "port"
     if not port_file.exists():
-        sys.exit(f"noemu: instance {INSTANCE} isn't running" if INSTANCE else "noemu: not running here; `noemu start` first")
+        raise NoemuError("not_running", f"instance {INSTANCE} isn't running" if INSTANCE else "not running here; `noemu start` first")
     state = state_of(target()) if INSTANCE else "running"
     if state == "pooled":
-        sys.exit(f"noemu: instance {INSTANCE} is asleep in the pool; `noemu spawn` hands out a pooled instance")
+        raise NoemuError("instance_unavailable", f"instance {INSTANCE} is asleep in the pool; `noemu spawn` hands out a pooled instance")
     if state == "asleep":
-        sys.exit(f"noemu: instance {INSTANCE} is asleep; `noemu wake {INSTANCE}` first")
-    deadline = time.monotonic() + timeout
+        raise NoemuError("instance_unavailable", f"instance {INSTANCE} is asleep; `noemu wake {INSTANCE}` first")
     try:
         port = int(port_file.read_text())
-        if not 1 <= port <= 65535:
-            raise NoemuError("invalid_state", "invalid driver port")
+    except (OSError, ValueError) as error:
+        raise NoemuError("invalid_state", f"cannot read driver port: {error}") from error
+    if not 1 <= port <= 65535:
+        raise NoemuError("invalid_state", "invalid driver port")
+    deadline = time.monotonic() + timeout
+    dispatch_started = False
+    try:
         with socket.create_connection(("127.0.0.1", port), timeout=timeout) as connection:
             remaining = deadline - time.monotonic()
             if remaining <= 0:
                 raise TimeoutError()
             connection.settimeout(remaining)
+            dispatch_started = True  # Even a failed sendall may write part of a request.
             connection.sendall(payload)
             data = bytearray()
             while b"\n" not in data:
@@ -112,6 +117,10 @@ def request(command: Command, timeout: float = 120) -> Result:
             return Result.decode(bytes(data), request_id, INSTANCE)
     except TimeoutError:
         raise NoemuError("deadline_exceeded", f"no answer in {timeout:g} s; outcome unknown; do not retry a mutation blindly") from None
+    except OSError as error:
+        if dispatch_started:
+            raise NoemuError("connection_lost", f"{error}; outcome unknown; inspect state before retrying") from error
+        raise NoemuError("connection_failed", f"{error}; command was not sent") from error
 
 
 def send(command: Command | str, timeout: float = 120) -> str:

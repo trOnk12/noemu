@@ -115,6 +115,40 @@ class ResultTest(unittest.TestCase):
 
 
 class TransportTest(unittest.TestCase):
+    def test_missing_and_invalid_ports_fail_before_connecting(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            with mock.patch.object(cli, "STATE", root), mock.patch.object(cli, "INSTANCE", None), \
+                    mock.patch.object(cli.socket, "create_connection") as connect:
+                for contents, code in ((None, "not_running"), ("garbage", "invalid_state"),
+                                       ("0", "invalid_state"), ("65536", "invalid_state")):
+                    if contents is not None:
+                        (root / "port").write_text(contents)
+                    with self.subTest(contents=contents), self.assertRaises(NoemuError) as error:
+                        cli.request(Command("screen"))
+                    self.assertEqual(error.exception.code, code)
+                connect.assert_not_called()
+
+    def test_connection_refusal_is_distinct_from_lost_execution_outcome(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            (root / "port").write_text("4000")
+            with mock.patch.object(cli, "STATE", root), mock.patch.object(cli, "INSTANCE", None), \
+                    mock.patch.object(cli.socket, "create_connection", side_effect=ConnectionRefusedError("refused")), \
+                    self.assertRaises(NoemuError) as error:
+                cli.request(Command("tap", ("Save",)))
+            self.assertEqual(error.exception.code, "connection_failed")
+            self.assertIn("command was not sent", str(error.exception))
+        for stage in ("sendall", "recv"):
+            socket = mock.MagicMock()
+            if stage == "sendall":
+                socket.sendall.side_effect = BrokenPipeError("closed")
+            with self.subTest(stage=stage), self.assertRaises(NoemuError) as error:
+                self.run_transport([ConnectionResetError("reset")], connection=socket, command=Command("tap", ("Save",)))
+            self.assertEqual(error.exception.code, "connection_lost")
+            self.assertIn("outcome unknown", str(error.exception))
+            socket.sendall.assert_called_once()
+
     def run_transport(self, chunks, timeout=1, connection=None, command=None):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)

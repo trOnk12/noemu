@@ -27,6 +27,13 @@ typed element state, valid bounds, and references scoped to that observation.
 Connection establishment, sending, and response reads share the client's single
 deadline. If connection establishment consumes that budget, no command is sent.
 
+Local setup and connection errors also have stable codes. `not_running` means
+there is no recorded driver port; `instance_unavailable` identifies a sleeping or
+pooled instance; `invalid_state` means the recorded port is unreadable or invalid.
+`connection_failed` occurs before dispatch and means the command was not sent.
+`connection_lost` occurs after sending begins and leaves execution unknown, even
+if the socket failed while writing. No transport failure triggers an automatic retry.
+
 MCP driver calls expose this result unchanged in `structuredContent`, including
 when `isError` is true. Their human-readable content is supplementary. Both CLI
 and MCP use the same command-specific timeout (120 seconds normally, 900 for

@@ -11,7 +11,7 @@ needed for editing and was not downloaded. It is not removed from the upstream t
 The baseline was **23 Python tests passing**. The first safety work unit passed
 **30 tests**, including real child-process checks for signaling and cleanup.
 The initial expanded suite passed **44 tests in 0.551 seconds**. Follow-up
-regressions on 2026-11-01 passed **58 tests in 0.310 seconds** in this Linux environment.
+regressions on 2026-11-01 passed **63 tests in 0.309 seconds** in this Linux environment.
 A wheel built successfully and its installed CLI, MCP import, Kotlin sources, init
 script, and service resources passed a smoke check outside the source directory.
 That offline smoke environment reused installed dependencies; it is not a clean
@@ -21,7 +21,7 @@ dependency-resolution test. No Android-conformance or performance result is clai
 
 | Check | Status |
 | --- | --- |
-| Existing Python regressions and new safety/protocol/MCP/benchmark tests | Passed locally (58 tests) |
+| Existing Python regressions and new safety/protocol/MCP/benchmark tests | Passed locally (63 tests) |
 | Wheel build and installed-package resource smoke check | Passed locally; existing dependencies reused |
 | Installed MCP stdio integration | Failed locally: initialization response timed out after 10 seconds in the restricted sandbox |
 | Fully isolated install with freshly resolved dependencies | Pending CI |
@@ -54,6 +54,13 @@ required Kotlin, live-driver, and isolated-install gate from establishing an out
   Oversized-line draining, UTF-8 byte limits, and EOF behavior have unit regressions.
 - An unknown build option reproduced deletion of an existing launch configuration.
   Option validation now runs before metadata or logs are changed.
+- A 600,000-character result included as both text and structured evidence produced
+  a 1,200,122-byte SDK reply, exceeding the 1 MiB limit. Final MCP reply framing now
+  replaces oversized output with an explicit inconclusive error and permits later
+  replies. Tests also cover multibyte UTF-8 and an oversized request ID.
+- Missing/invalid driver ports and socket failures now produce typed errors.
+  Regressions distinguish connection refusal before dispatch from failures during
+  sending or receiving, where the execution outcome remains unknown.
 
 The updated wheel was installed into a separate virtual environment reusing
 available dependencies, and its CLI, imports, and packaged resources passed checks
