@@ -8,6 +8,8 @@ from pathlib import Path
 from unittest import mock
 
 from noemu import cli
+from noemu.protocol import Result
+from tests.test_protocol import reply as driver_reply
 
 
 class CliTest(unittest.TestCase):
@@ -246,28 +248,50 @@ class McpTest(unittest.TestCase):
         self.assertTrue({"spawn", "screen", "tap", "type", "destroy", "build"} <= set(names))
 
     def test_a_tool_call_goes_to_its_instance(self):
-        with mock.patch.object(cli, "send", return_value="activity Main\n[0] button OK") as send:
+        result = Result(driver_reply(text="activity Main\n[0] button OK"))
+        with mock.patch.object(cli, "request", return_value=result) as request:
             reply, = self.serve({"jsonrpc": "2.0", "id": 1, "method": "tools/call",
                                  "params": {"name": "tap", "arguments": {"id": "4", "target": "OK"}}})
-        send.assert_called_once_with(cli.Command("tap", ("OK",)))
+        request.assert_called_once_with(cli.Command("tap", ("OK",)), timeout=120)
         self.assertIsNone(cli.INSTANCE)
         self.assertIn("[0] button OK", reply["result"]["content"][0]["text"])
+        self.assertEqual(reply["result"]["structuredContent"], result.data)
 
     def test_open_takes_an_activity_or_a_link(self):
-        with mock.patch.object(cli, "send", return_value="activity Chat") as send:
+        with mock.patch.object(cli, "request", return_value=Result(driver_reply(text="activity Chat"))) as request:
             self.serve({"jsonrpc": "2.0", "id": 1, "method": "tools/call",
                         "params": {"name": "open", "arguments": {"id": "2", "target": "wire://conversation/1"}}})
-        send.assert_called_once_with(cli.Command("open", ("wire://conversation/1",)))
+        request.assert_called_once_with(cli.Command("open", ("wire://conversation/1",)), timeout=120)
 
     def test_network_switches_airplane_mode(self):
-        with mock.patch.object(cli, "send", return_value="network off") as send:
+        with mock.patch.object(cli, "request", return_value=Result(driver_reply(text="network off"))) as request:
             self.serve({"jsonrpc": "2.0", "id": 1, "method": "tools/call",
                         "params": {"name": "network", "arguments": {"id": "2", "state": "off"}}})
-        send.assert_called_once_with(cli.Command("network", ("off",)))
-        with mock.patch.object(cli, "send", return_value="network delay 300 ms") as send:
+        request.assert_called_once_with(cli.Command("network", ("off",)), timeout=120)
+        with mock.patch.object(cli, "request", return_value=Result(driver_reply(text="network delay 300 ms"))) as request:
             self.serve({"jsonrpc": "2.0", "id": 2, "method": "tools/call",
                         "params": {"name": "network", "arguments": {"id": "2", "state": "slow", "delay_ms": 300}}})
-        send.assert_called_once_with(cli.Command("network", ("slow", "300")))
+        request.assert_called_once_with(cli.Command("network", ("slow", "300")), timeout=120)
+
+    def test_supported_driver_options_are_available_over_mcp(self):
+        cases = [("scroll", {"direction": "right", "target": "tag:horizontal"}, ("right", "tag:horizontal"), 120),
+                 ("rotate", {"count": 2}, ("2",), 120),
+                 ("restore-activity", {}, (), 120), ("leaks", {}, (), 900),
+                 ("crawl", {"steps": 5, "minutes": 1}, ("5", "1"), 3600)]
+        for name, arguments, expected, timeout in cases:
+            with self.subTest(name=name), mock.patch.object(cli, "request", return_value=Result(driver_reply())) as request:
+                response, = self.serve({"jsonrpc": "2.0", "id": 1, "method": "tools/call",
+                                       "params": {"name": name, "arguments": {"id": "2", **arguments}}})
+                self.assertFalse(response["result"].get("isError", False), response)
+                request.assert_called_once_with(cli.Command(name, expected), timeout=timeout)
+
+    def test_invalid_network_options_do_not_silently_default(self):
+        for arguments in ({"state": "slow"}, {"state": "off", "delay_ms": 300}):
+            with self.subTest(arguments=arguments), mock.patch.object(cli, "request") as request:
+                response, = self.serve({"jsonrpc": "2.0", "id": 1, "method": "tools/call",
+                                       "params": {"name": "network", "arguments": {"id": "2", **arguments}}})
+                self.assertTrue(response["result"]["isError"])
+                request.assert_not_called()
 
     def test_a_failing_tool_is_a_tool_error_not_a_crash(self):
         reply, = self.serve({"jsonrpc": "2.0", "id": 1, "method": "tools/call",
@@ -284,18 +308,20 @@ class McpTest(unittest.TestCase):
     def test_invalid_tool_arguments_do_not_reach_driver(self):
         for arguments in ({"id": "../escape", "target": "OK"}, {"id": "1"},
                           {"id": "1", "target": 7}, {"id": "1", "target": "OK", "extra": True}):
-            with self.subTest(arguments=arguments), mock.patch.object(cli, "send") as send:
+            with self.subTest(arguments=arguments), mock.patch.object(cli, "request") as request:
                 reply, = self.serve({"jsonrpc": "2.0", "id": 1, "method": "tools/call",
                                      "params": {"name": "tap", "arguments": arguments}})
             self.assertTrue(reply["result"]["isError"])
-            send.assert_not_called()
+            request.assert_not_called()
 
     def test_driver_failure_is_a_tool_error(self):
-        with mock.patch.object(cli, "send", side_effect=cli.NoemuError("disabled_target", "disabled")):
+        result = Result(driver_reply(status="failed", error={"code": "disabled_target", "message": "disabled"}))
+        with mock.patch.object(cli, "request", return_value=result):
             reply, = self.serve({"jsonrpc": "2.0", "id": 1, "method": "tools/call",
                                  "params": {"name": "tap", "arguments": {"id": "1", "target": "Disabled"}}})
         self.assertTrue(reply["result"]["isError"])
         self.assertIn("disabled_target", reply["result"]["content"][0]["text"])
+        self.assertEqual(reply["result"]["structuredContent"], result.data)
 
     def test_unknown_method(self):
         reply, = self.serve({"jsonrpc": "2.0", "id": 7, "method": "foo/bar"})

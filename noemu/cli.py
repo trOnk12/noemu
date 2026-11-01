@@ -440,9 +440,17 @@ TOOLS = {
             {**ID, "target": {"type": "string"}}, ["id", "target"]),
     "type": ("Type text into a field (by number or label); returns the new screen.",
              {**ID, "target": {"type": "string"}, "text": {"type": "string"}}, ["id", "target", "text"]),
-    "scroll": ("Scroll (down by default; up, left, right).", {**ID, "direction": {"type": "string", "enum": ["up", "down", "left", "right"]}}, ["id"]),
+    "scroll": ("Scroll a semantic container. Supply target when more than one container matches the axis.",
+               {**ID, "direction": {"type": "string", "enum": ["up", "down", "left", "right"]},
+                "target": {"type": "string", "minLength": 1}}, ["id"]),
     "back": ("Press back.", ID, ["id"]),
-    "rotate": ("Rotate the device; shows what the rotation lost.", ID, ["id"]),
+    "rotate": ("Rotate the activity and observe its state.",
+               {**ID, "count": {"type": "integer", "minimum": 1, "maximum": 100}}, ["id"]),
+    "restore-activity": ("Restore activity saved state in the same JVM; application statics and singletons survive.", ID, ["id"]),
+    "leaks": ("Inspect retained destroyed activities. This may require heap analysis.", ID, ["id"]),
+    "crawl": ("Explore within action and time budgets; report crashes, state loss and unresolved limitations.",
+              {**ID, "steps": {"type": "integer", "minimum": 1, "maximum": 10000},
+               "minutes": {"type": "integer", "minimum": 1, "maximum": 60}}, ["id"]),
     "wait": ("Let the app run for some milliseconds, then return the screen.",
              {**ID, "ms": {"type": "integer", "minimum": 0, "maximum": 120000}}, ["id"]),
     "open": ("Open an activity (.SettingsActivity or a full class name) or a deep link (myapp://...) in the instance; "
@@ -464,11 +472,17 @@ TOOLS = {
 }
 
 
-def run_tool(name: str, a: dict) -> list:
+def run_tool(name: str, a: dict):
     """Runs one tool through the same functions as the command line; returns MCP content."""
     import contextlib, io, base64
+    from noemu.protocol import ToolOutput
     global INSTANCE
     out = io.StringIO()
+    result = None
+    def execute(command: Command) -> str:
+        nonlocal result
+        result = request(command, timeout=command.timeout_seconds)
+        return result.text()
     if name not in TOOLS:
         raise NoemuError("unsupported", f"unknown tool {name}")
     previous = INSTANCE
@@ -480,7 +494,7 @@ def run_tool(name: str, a: dict) -> list:
             if name == "spawn":
                 spawn()
                 INSTANCE = out.getvalue().split()[0]
-                print("\n" + send("screen"))
+                print("\n" + execute(Command("screen")))
             elif name == "build":
                 build([x for k in ("module", "task") if a.get(k) for x in (f"--{k}", a[k])])
             elif name == "pool":
@@ -490,21 +504,26 @@ def run_tool(name: str, a: dict) -> list:
                 fleet(name, [str(a["id"])] if "id" in a else [])
             elif name == "shot":
                 path = (target() / "mcp-shot.png").resolve()
-                send(Command("shot", (str(path),)))
+                execute(Command("shot", (str(path),)))
                 if path.stat().st_size > MAX_MESSAGE_BYTES * 3 // 4 - 8192:
                     raise NoemuError("message_too_large", "screenshot exceeds MCP response budget; use the CLI artifact path")
-                return [{"type": "image", "data": base64.b64encode(path.read_bytes()).decode(), "mimeType": "image/png"}]
+                return ToolOutput([{"type": "image", "data": base64.b64encode(path.read_bytes()).decode(), "mimeType": "image/png"}], result)
             else:
+                if name == "network" and ((a.get("state") == "slow") != ("delay_ms" in a)):
+                    raise NoemuError("invalid_argument", "delay_ms is required only for network slow")
                 arguments = {"tap": (a.get("target", ""),), "type": (a.get("target", ""), a.get("text", "")),
-                             "scroll": (a.get("direction", "down"),), "wait": (str(a.get("ms", 1000)),),
+                             "scroll": (a.get("direction", "down"),) + ((a["target"],) if "target" in a else ()),
+                             "rotate": (str(a["count"]),) if "count" in a else (),
+                             "crawl": (str(a.get("steps", 200)), str(a.get("minutes", 10))),
+                             "wait": (str(a.get("ms", 1000)),),
                              "open": (a.get("target", ""),),
                              "network": (a.get("state", ""),) + ((str(a.get("delay_ms", 0)),) if a.get("state") == "slow" else ())}
-                print(send(Command(name, arguments.get(name, ()))))
+                print(execute(Command(name, arguments.get(name, ()))))
     except SystemExit as e:
         raise RuntimeError(str(e.code) if e.code not in (None, 0) else out.getvalue()) from None
     finally:
         INSTANCE = previous
-    return [{"type": "text", "text": out.getvalue().strip()}]
+    return ToolOutput([{"type": "text", "text": out.getvalue().strip()}], result)
 
 
 def mcp() -> int:
@@ -543,7 +562,8 @@ def main(argv: list[str] | None = None) -> int:
                "crawl"):
         if cmd == "shot" and rest:
             rest = [str(Path(rest[0]).resolve()), *rest[1:]]
-        print(send(Command(cmd, tuple(rest)), timeout=3600 if cmd == "crawl" else 900 if cmd == "leaks" else 120))
+        command = Command(cmd, tuple(rest))
+        print(send(command, timeout=command.timeout_seconds))
         return 0
     print(__doc__)
     return 2

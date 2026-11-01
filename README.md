@@ -169,6 +169,14 @@ official MCP SDK. Tool inputs are schema-validated; malformed messages do not
 terminate the session. Tool calls are serialized while the legacy orchestration
 uses process-global instance selection.
 
+Driver operations return the same versioned result as `structuredContent`, alongside
+readable text (or an image for `shot`). Agents can inspect observation references,
+selectors, identity, timing, artifacts, and limitations without parsing console text.
+Failed operations retain their structured result and set `isError`.
+`scroll` accepts a `target`; `rotate` accepts `count`; `crawl` accepts `steps` and
+`minutes`. `restore-activity` preserves application statics and singletons.
+For `network`, `delay_ms` is required with `state: "slow"` and rejected otherwise.
+
 ## Configuration
 
 | Variable | Purpose |

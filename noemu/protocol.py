@@ -85,6 +85,10 @@ class Command:
             raise NoemuError("message_too_large", "request exceeds 1 MiB")
         return data
 
+    @property
+    def timeout_seconds(self) -> int:
+        return {"crawl": 3600, "leaks": 900}.get(self.name, 120)
+
 
 @dataclass(frozen=True)
 class Result:
@@ -168,3 +172,9 @@ class Result:
             error = self.data["error"]
             raise NoemuError(error["code"], error["message"], self.data)
         return self.data["text"]
+
+
+@dataclass(frozen=True)
+class ToolOutput:
+    content: list[dict[str, Any]]
+    result: Result | None = None

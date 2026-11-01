@@ -27,6 +27,12 @@ typed element state, valid bounds, and references scoped to that observation.
 Connection establishment, sending, and response reads share the client's single
 deadline. If connection establishment consumes that budget, no command is sent.
 
+MCP driver calls expose this result unchanged in `structuredContent`, including
+when `isError` is true. Their human-readable content is supplementary. Both CLI
+and MCP use the same command-specific timeout (120 seconds normally, 900 for
+heap analysis, 3600 for crawling). Legacy build/fleet operations do not yet
+produce a driver result; the supervisor introduces their identities in milestone B.
+
 Current limits:
 
 - Build identity is legacy metadata, or null for a direct start, not an immutable

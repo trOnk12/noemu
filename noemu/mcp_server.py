@@ -50,8 +50,10 @@ async def serve() -> None:
             try:
                 # Do not abandon a mutating command when its client cancels.
                 # The lock stays held until its thread has actually finished.
-                content = await anyio.to_thread.run_sync(cli.run_tool, name, arguments)
-                return types.CallToolResult(content=content, isError=False)
+                output = await anyio.to_thread.run_sync(cli.run_tool, name, arguments)
+                return types.CallToolResult(content=output.content,
+                                            structuredContent=output.result.data if output.result else None,
+                                            isError=False)
             except (RuntimeError, OSError, ValueError, KeyError) as error:
                 structured = error.result if isinstance(error, NoemuError) else None
                 return types.CallToolResult(content=[types.TextContent(type="text", text=str(error))],
