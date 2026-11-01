@@ -1,0 +1,66 @@
+"""Official MCP SDK server; serialized tool calls share the CLI command model."""
+from __future__ import annotations
+
+import sys
+
+import anyio
+from mcp import types
+from mcp.server.lowlevel import Server
+from mcp.server.stdio import stdio_server
+
+from noemu.protocol import MAX_MESSAGE_BYTES, NoemuError
+
+
+class BoundedInput:
+    """Bound memory before the SDK parses JSON. Discard an oversized line."""
+    def __init__(self, stream):
+        self.stream = stream
+
+    def __aiter__(self):
+        return self
+
+    async def __anext__(self):
+        line = await anyio.to_thread.run_sync(self.stream.readline, MAX_MESSAGE_BYTES + 1)
+        if not line:
+            raise StopAsyncIteration
+        if len(line.encode("utf-8")) > MAX_MESSAGE_BYTES:
+            while line and not line.endswith("\n"):
+                line = await anyio.to_thread.run_sync(self.stream.readline, MAX_MESSAGE_BYTES + 1)
+            # Pass a parse failure to the SDK, which reports it and continues.
+            return "{\n"
+        return line
+
+
+async def serve() -> None:
+    from noemu import cli
+
+    server = Server("noemu", version="0.2.0")
+    lock = anyio.Lock()
+
+    @server.list_tools()
+    async def list_tools():
+        return [types.Tool(name=name, description=description, inputSchema={
+            "type": "object", "properties": properties, "required": required,
+            "additionalProperties": False,
+        }) for name, (description, properties, required) in cli.TOOLS.items()]
+
+    @server.call_tool()
+    async def call_tool(name: str, arguments: dict):
+        async with lock:
+            try:
+                # Do not abandon a mutating command when its client cancels.
+                # The lock stays held until its thread has actually finished.
+                content = await anyio.to_thread.run_sync(cli.run_tool, name, arguments)
+                return types.CallToolResult(content=content, isError=False)
+            except (RuntimeError, OSError, ValueError, KeyError) as error:
+                structured = error.result if isinstance(error, NoemuError) else None
+                return types.CallToolResult(content=[types.TextContent(type="text", text=str(error))],
+                                            structuredContent=structured, isError=True)
+
+    async with stdio_server(stdin=BoundedInput(sys.stdin), stdout=anyio.wrap_file(sys.stdout)) as (read, write):
+        await server.run(read, write, server.create_initialization_options())
+
+
+def run() -> int:
+    anyio.run(serve)
+    return 0

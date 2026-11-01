@@ -27,12 +27,12 @@ class CliTest(unittest.TestCase):
     def test_type_keeps_spaces_in_target_and_text(self):
         with mock.patch.object(cli, "send", return_value="ok") as send:
             cli.main(["type", "Text input", "hello world"])
-        send.assert_called_once_with("type Text input\thello world", timeout=120)
+        send.assert_called_once_with(cli.Command("type", ("Text input", "hello world")), timeout=120)
 
     def test_crawl_gets_a_long_timeout(self):
         with mock.patch.object(cli, "send", return_value="ok") as send:
             cli.main(["crawl", "100"])
-        send.assert_called_once_with("crawl 100", timeout=3600)
+        send.assert_called_once_with(cli.Command("crawl", ("100",)), timeout=3600)
 
     def test_start_needs_a_gradle_project(self):
         cwd = os.getcwd()
@@ -104,7 +104,7 @@ class FleetTest(unittest.TestCase):
     def test_no_answer_is_a_message_not_a_traceback(self):
         self.instance("6", "running")
         with mock.patch.object(cli.socket, "create_connection", side_effect=TimeoutError("timed out")):
-            with self.assertRaises(SystemExit) as e:
+            with self.assertRaises(cli.NoemuError) as e:
                 cli.main(["--id", "6", "screen"])
         self.assertIn("no answer", str(e.exception))
 
@@ -184,12 +184,57 @@ class McpTest(unittest.TestCase):
     """The MCP server's protocol, with the tools' work mocked."""
 
     def serve(self, *messages):
-        import io, json
-        stdin = io.StringIO("".join(json.dumps(m) + "\n" for m in messages))
-        stdout = io.StringIO()
-        with mock.patch.object(cli.sys, "stdin", stdin), mock.patch.object(cli.sys, "stdout", stdout):
-            cli.main(["mcp"])
-        return [json.loads(line) for line in stdout.getvalue().splitlines()]
+        import anyio
+        from contextlib import asynccontextmanager
+        from mcp import types
+        from mcp.shared.message import SessionMessage
+        from noemu import mcp_server
+
+        async def session():
+            to_server, server_read = anyio.create_memory_object_stream(10)
+            server_write, from_server = anyio.create_memory_object_stream(10)
+            @asynccontextmanager
+            async def transport(**kwargs):
+                yield server_read, server_write
+            init = {"jsonrpc": "2.0", "id": "init", "method": "initialize", "params": {
+                "protocolVersion": "2025-06-18", "capabilities": {}, "clientInfo": {"name": "test", "version": "1"}}}
+            queue = list(messages)
+            if isinstance(queue[0], dict) and queue[0].get("method") == "initialize":
+                queue[0]["params"].update(init["params"])
+            else:
+                queue = [init, {"jsonrpc": "2.0", "method": "notifications/initialized"}, *queue]
+            replies = []
+            with mock.patch.object(mcp_server, "stdio_server", transport):
+                async with anyio.create_task_group() as tg:
+                    # The managed sandbox blocks asyncio's cross-thread socket
+                    # wakeup; a test-only timer lets completed worker callbacks run.
+                    async def tick():
+                        while True:
+                            await anyio.sleep(0.01)
+                    tg.start_soon(tick)
+                    tg.start_soon(mcp_server.serve)
+                    for message in queue:
+                        try:
+                            parsed = types.JSONRPCMessage.model_validate_json(message) if isinstance(message, str) else types.JSONRPCMessage.model_validate(message)
+                        except Exception as error:
+                            await to_server.send(error)
+                            continue
+                        await to_server.send(SessionMessage(parsed))
+                        if isinstance(message, dict) and "id" in message:
+                            with anyio.fail_after(5):
+                                while True:
+                                    reply = (await from_server.receive()).message.model_dump(by_alias=True, exclude_none=True)
+                                    if reply.get("id") == message["id"]:
+                                        break
+                            if message["id"] != "init":
+                                replies.append(reply)
+                    tg.cancel_scope.cancel()
+            await to_server.aclose()
+            await server_read.aclose()
+            await server_write.aclose()
+            await from_server.aclose()
+            return replies
+        return anyio.run(session)
 
     def test_initialize_and_list_tools(self):
         replies = self.serve({"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {"protocolVersion": "2025-06-18"}},
@@ -204,25 +249,25 @@ class McpTest(unittest.TestCase):
         with mock.patch.object(cli, "send", return_value="activity Main\n[0] button OK") as send:
             reply, = self.serve({"jsonrpc": "2.0", "id": 1, "method": "tools/call",
                                  "params": {"name": "tap", "arguments": {"id": "4", "target": "OK"}}})
-        send.assert_called_once_with("tap OK")
-        self.assertEqual(cli.INSTANCE, "4")
+        send.assert_called_once_with(cli.Command("tap", ("OK",)))
+        self.assertIsNone(cli.INSTANCE)
         self.assertIn("[0] button OK", reply["result"]["content"][0]["text"])
 
     def test_open_takes_an_activity_or_a_link(self):
         with mock.patch.object(cli, "send", return_value="activity Chat") as send:
             self.serve({"jsonrpc": "2.0", "id": 1, "method": "tools/call",
                         "params": {"name": "open", "arguments": {"id": "2", "target": "wire://conversation/1"}}})
-        send.assert_called_once_with("open wire://conversation/1")
+        send.assert_called_once_with(cli.Command("open", ("wire://conversation/1",)))
 
     def test_network_switches_airplane_mode(self):
         with mock.patch.object(cli, "send", return_value="network off") as send:
             self.serve({"jsonrpc": "2.0", "id": 1, "method": "tools/call",
                         "params": {"name": "network", "arguments": {"id": "2", "state": "off"}}})
-        send.assert_called_once_with("network off")
+        send.assert_called_once_with(cli.Command("network", ("off",)))
         with mock.patch.object(cli, "send", return_value="network delay 300 ms") as send:
             self.serve({"jsonrpc": "2.0", "id": 2, "method": "tools/call",
                         "params": {"name": "network", "arguments": {"id": "2", "state": "slow", "delay_ms": 300}}})
-        send.assert_called_once_with("network slow 300")
+        send.assert_called_once_with(cli.Command("network", ("slow", "300")))
 
     def test_a_failing_tool_is_a_tool_error_not_a_crash(self):
         reply, = self.serve({"jsonrpc": "2.0", "id": 1, "method": "tools/call",
@@ -230,9 +275,31 @@ class McpTest(unittest.TestCase):
         self.assertTrue(reply["result"]["isError"])
         self.assertIn("isn't running", reply["result"]["content"][0]["text"])
 
+    def test_malformed_messages_do_not_end_the_session(self):
+        for raw in ("{", "[]", "null", '{"jsonrpc":"2.0","id":2,"method":"tools/call","params":[]}'):
+            with self.subTest(raw=raw):
+                reply, = self.serve(raw, {"jsonrpc": "2.0", "id": 9, "method": "ping"})
+                self.assertEqual(reply["result"], {})
+
+    def test_invalid_tool_arguments_do_not_reach_driver(self):
+        for arguments in ({"id": "../escape", "target": "OK"}, {"id": "1"},
+                          {"id": "1", "target": 7}, {"id": "1", "target": "OK", "extra": True}):
+            with self.subTest(arguments=arguments), mock.patch.object(cli, "send") as send:
+                reply, = self.serve({"jsonrpc": "2.0", "id": 1, "method": "tools/call",
+                                     "params": {"name": "tap", "arguments": arguments}})
+            self.assertTrue(reply["result"]["isError"])
+            send.assert_not_called()
+
+    def test_driver_failure_is_a_tool_error(self):
+        with mock.patch.object(cli, "send", side_effect=cli.NoemuError("disabled_target", "disabled")):
+            reply, = self.serve({"jsonrpc": "2.0", "id": 1, "method": "tools/call",
+                                 "params": {"name": "tap", "arguments": {"id": "1", "target": "Disabled"}}})
+        self.assertTrue(reply["result"]["isError"])
+        self.assertIn("disabled_target", reply["result"]["content"][0]["text"])
+
     def test_unknown_method(self):
         reply, = self.serve({"jsonrpc": "2.0", "id": 7, "method": "foo/bar"})
-        self.assertEqual(reply["error"]["code"], -32601)
+        self.assertEqual(reply["error"]["code"], -32602)  # official SDK rejects unknown request models
 
 
 if __name__ == "__main__":

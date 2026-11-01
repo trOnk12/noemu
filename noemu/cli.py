@@ -8,7 +8,8 @@ changes. Made for coding agents in sandboxes without an emulator, and for anyone
     noemu screen                 # numbered elements + a screenshot
     noemu tap 3 | noemu tap "Sign in"
     noemu type 2 "hello@example.com"
-    noemu scroll down [N] | noemu back | noemu rotate [N] | noemu kill | noemu wait 2000
+    noemu scroll down [N] | noemu back | noemu rotate [N] | noemu restore-activity | noemu wait 2000
+    noemu kill                  # legacy alias for restore-activity; application statics survive
     noemu open .SettingsActivity | noemu open myapp://chat/42   # an activity, or a deep link
     noemu network off | noemu network on   # airplane mode: open connections closed, new ones refused, app told
     noemu network slow 300       # 300 ms more each way on every connection (0: none)
@@ -48,9 +49,11 @@ import socket
 import subprocess
 import sys
 import time
+import uuid
 from pathlib import Path
 
 from noemu import processes
+from noemu.protocol import Command, Result, NoemuError, MAX_MESSAGE_BYTES
 
 HERE = Path(__file__).resolve().parent
 # In the project's .gradle folder: ignored by git in Android projects, and no build or clean deletes it.
@@ -72,28 +75,43 @@ def target() -> Path:
     return instance_path(INSTANCE) if INSTANCE is not None else STATE
 
 
-def send(line: str, timeout: float = 120) -> str:
+def request(command: Command, timeout: float = 120) -> Result:
+    request_id = str(uuid.uuid4())
+    payload = command.encode(request_id, timeout)
     port_file = target() / "port"
     if not port_file.exists():
         sys.exit(f"noemu: instance {INSTANCE} isn't running" if INSTANCE else "noemu: not running here; `noemu start` first")
-    # A frozen JVM accepts the connection (the kernel does) and never answers.
     state = state_of(target()) if INSTANCE else "running"
     if state == "pooled":
         sys.exit(f"noemu: instance {INSTANCE} is asleep in the pool; `noemu spawn` hands out a pooled instance")
     if state == "asleep":
         sys.exit(f"noemu: instance {INSTANCE} is asleep; `noemu wake {INSTANCE}` first")
+    deadline = time.monotonic() + timeout
     try:
-        with socket.create_connection(("127.0.0.1", int(port_file.read_text())), timeout=timeout) as s:
-            s.sendall((line + "\n").encode())
-            data = b""
-            while not data.endswith(b"\n.\n"):
-                chunk = s.recv(65536)
+        port = int(port_file.read_text())
+        if not 1 <= port <= 65535:
+            raise NoemuError("invalid_state", "invalid driver port")
+        with socket.create_connection(("127.0.0.1", port), timeout=timeout) as connection:
+            connection.sendall(payload)
+            data = bytearray()
+            while b"\n" not in data:
+                remaining = deadline - time.monotonic()
+                if remaining <= 0:
+                    raise TimeoutError()
+                connection.settimeout(remaining)
+                chunk = connection.recv(min(65536, MAX_MESSAGE_BYTES + 1 - len(data)))
                 if not chunk:
-                    break
-                data += chunk
+                    raise NoemuError("protocol_error", "driver closed the connection before a complete response")
+                data.extend(chunk)
+                if len(data) > MAX_MESSAGE_BYTES:
+                    raise NoemuError("message_too_large", "driver response exceeds 1 MiB")
+            return Result.decode(bytes(data), request_id, INSTANCE)
     except TimeoutError:
-        sys.exit(f"noemu: no answer in {timeout:.0f} s; the app may be stuck (`noemu logs`, or `noemu destroy` it)")
-    return data.decode(errors="replace").removesuffix("\n.\n").rstrip(".\n")
+        raise NoemuError("deadline_exceeded", f"no answer in {timeout:g} s; outcome unknown; do not retry a mutation blindly") from None
+
+
+def send(command: Command | str, timeout: float = 120) -> str:
+    return request(Command.legacy(command) if isinstance(command, str) else command, timeout).text()
 
 
 def gradle(opts: dict, props: list[str], log: Path) -> subprocess.Popen:
@@ -197,9 +215,9 @@ def launch() -> Path:
             break
         except FileExistsError:
             continue
-    args = [a for a in spec["jvmArgs"] if not a.startswith(("-Dnoemu.out=", "-Dnoemu.settle=", "-Dnoemu.shots=", "-Xmx"))]
+    args = [a for a in spec["jvmArgs"] if not a.startswith(("-Dnoemu.out=", "-Dnoemu.settle=", "-Dnoemu.shots=", "-Dnoemu.instance=", "-Xmx"))]
     (out / "tmp").mkdir()  # Robolectric unpacks its native runtime (about 200 MB) and the app's data here
-    args += [f"-Xmx{os.environ.get('NOEMU_XMX', '1g')}", f"-Dnoemu.out={out.resolve()}",
+    args += [f"-Xmx{os.environ.get('NOEMU_XMX', '1g')}", f"-Dnoemu.out={out.resolve()}", f"-Dnoemu.instance={out.name}",
              f"-Djava.io.tmpdir={(out / 'tmp').resolve()}"]
     args += [f"-Dnoemu.{k}={os.environ[v]}" for k, v in (("settle", "NOEMU_SETTLE_MS"), ("shots", "NOEMU_SHOTS"),
                                                          ("idle", "NOEMU_IDLE_MIN")) if os.environ.get(v)]
@@ -264,14 +282,17 @@ def pool(n: int) -> int:
     t0 = time.time()
     dirs = [launch() for _ in range(n)]
     wait_up(dirs)
+    failed = False
     for d in dirs:
         if (d / "port").exists():
             signal_to(d, signal.SIGSTOP, "pooled")
             print(f"{d.name}: in the pool after {time.time() - t0:.0f}s, {memory(d)} MB")
         else:
-            destroy_one(d)
+            failed = True
+            if alive(d):
+                destroy_one(d)
             print(f"{d.name}: FAILED to start; see {d / 'log.txt'}")
-    return 0
+    return 1 if failed else 0
 
 
 def spawn(refill: bool = True) -> int:
@@ -307,12 +328,18 @@ def fleet(cmd: str, rest: list[str]) -> int:
     if cmd == "build":
         return build(rest)
     if cmd == "pool":
-        return pool(int(rest[0]) if rest else 2)
+        if len(rest) > 1:
+            raise NoemuError("invalid_argument", "pool accepts one size")
+        return pool(Command.integer(rest[0], 1, 4) if rest else 2)
     if cmd == "spawn":
-        return spawn()
+        if rest not in ([], ["--no-refill"]):
+            raise NoemuError("invalid_argument", "spawn accepts only --no-refill")
+        return spawn(refill=not rest)
     if cmd == "_refill":
         return pool(1)
     if cmd == "list":
+        if rest:
+            raise NoemuError("invalid_argument", "list takes no arguments")
         for d in instances():
             port = (d / "port").read_text() if (d / "port").exists() else "-"
             print(f"{d.name}\t{state_of(d)}\tport {port}\t{memory(d)} MB")
@@ -400,7 +427,7 @@ def doctor(args: list[str]) -> int:
 
 # MCP --------------------------------------------------------------------------------------------------------------
 
-ID = {"id": {"type": "string", "description": "instance id, from spawn"}}
+ID = {"id": {"type": "string", "pattern": "^(0|[1-9][0-9]{0,9})$", "description": "instance id, from spawn"}}
 TOOLS = {
     "spawn": ("Get a running app instance: wakes a pooled one (under a second) or starts one. Returns its id and "
               "first screen. Call build first after changing code.", {}, []),
@@ -409,17 +436,17 @@ TOOLS = {
             {**ID, "target": {"type": "string"}}, ["id", "target"]),
     "type": ("Type text into a field (by number or label); returns the new screen.",
              {**ID, "target": {"type": "string"}, "text": {"type": "string"}}, ["id", "target", "text"]),
-    "scroll": ("Scroll (down by default; up, left, right).", {**ID, "direction": {"type": "string"}}, ["id"]),
+    "scroll": ("Scroll (down by default; up, left, right).", {**ID, "direction": {"type": "string", "enum": ["up", "down", "left", "right"]}}, ["id"]),
     "back": ("Press back.", ID, ["id"]),
     "rotate": ("Rotate the device; shows what the rotation lost.", ID, ["id"]),
     "wait": ("Let the app run for some milliseconds, then return the screen.",
-             {**ID, "ms": {"type": "integer"}}, ["id"]),
+             {**ID, "ms": {"type": "integer", "minimum": 0, "maximum": 120000}}, ["id"]),
     "open": ("Open an activity (.SettingsActivity or a full class name) or a deep link (myapp://...) in the instance; "
              "returns the new screen.", {**ID, "target": {"type": "string"}}, ["id", "target"]),
     "network": ("Airplane mode for the instance: 'off' closes its open connections (a websocket too), refuses new ones "
                 "and tells the app; 'on' brings it back (returns the new screen). 'slow' with delay_ms adds that "
                 "latency each way.",
-                {**ID, "state": {"type": "string", "enum": ["on", "off", "slow"]}, "delay_ms": {"type": "integer"}},
+                {**ID, "state": {"type": "string", "enum": ["on", "off", "slow"]}, "delay_ms": {"type": "integer", "minimum": 0, "maximum": 60000}},
                 ["id", "state"]),
     "shot": ("A screenshot of the instance, as an image.", ID, ["id"]),
     "logs": ("The app's recent log lines.", ID, ["id"]),
@@ -427,7 +454,7 @@ TOOLS = {
     "wake": ("Resume a frozen instance.", ID, ["id"]),
     "destroy": ("End the instance and remove its files.", ID, ["id"]),
     "list": ("All instances: id, state, port, memory.", {}, []),
-    "pool": ("Start N instances asleep, so later spawns are instant.", {"n": {"type": "integer"}}, ["n"]),
+    "pool": ("Start N instances asleep, so later spawns are instant.", {"n": {"type": "integer", "minimum": 1, "maximum": 4}}, ["n"]),
     "build": ("Compile the app and record how it starts (after every code change; pooled instances of the old code "
               "are dropped).", {"module": {"type": "string"}, "task": {"type": "string"}}, []),
 }
@@ -438,8 +465,13 @@ def run_tool(name: str, a: dict) -> list:
     import contextlib, io, base64
     global INSTANCE
     out = io.StringIO()
-    INSTANCE = str(a["id"]) if "id" in a else None
+    if name not in TOOLS:
+        raise NoemuError("unsupported", f"unknown tool {name}")
+    previous = INSTANCE
+    INSTANCE = a.get("id")
     try:
+        if INSTANCE is not None:
+            instance_path(INSTANCE)
         with contextlib.redirect_stdout(out):
             if name == "spawn":
                 spawn()
@@ -448,56 +480,32 @@ def run_tool(name: str, a: dict) -> list:
             elif name == "build":
                 build([x for k in ("module", "task") if a.get(k) for x in (f"--{k}", a[k])])
             elif name == "pool":
-                pool(int(a["n"]))
+                if pool(int(a["n"])):
+                    raise NoemuError("startup_failed", out.getvalue())
             elif name in ("list", "sleep", "wake", "destroy"):
                 fleet(name, [str(a["id"])] if "id" in a else [])
             elif name == "shot":
                 path = (target() / "mcp-shot.png").resolve()
-                send(f"shot {path}")
+                send(Command("shot", (str(path),)))
+                if path.stat().st_size > MAX_MESSAGE_BYTES * 3 // 4 - 8192:
+                    raise NoemuError("message_too_large", "screenshot exceeds MCP response budget; use the CLI artifact path")
                 return [{"type": "image", "data": base64.b64encode(path.read_bytes()).decode(), "mimeType": "image/png"}]
             else:
-                line = {"tap": f"tap {a.get('target', '')}", "type": f"type {a.get('target', '')}\t{a.get('text', '')}",
-                        "scroll": f"scroll {a.get('direction', 'down')}", "wait": f"wait {a.get('ms', 1000)}",
-                        "open": f"open {a.get('target', '')}", "network": f"network {a.get('state', '')}"
-                        + (f" {a.get('delay_ms', 0)}" if a.get("state") == "slow" else "")}.get(name, name)
-                print(send(line))
+                arguments = {"tap": (a.get("target", ""),), "type": (a.get("target", ""), a.get("text", "")),
+                             "scroll": (a.get("direction", "down"),), "wait": (str(a.get("ms", 1000)),),
+                             "open": (a.get("target", ""),),
+                             "network": (a.get("state", ""),) + ((str(a.get("delay_ms", 0)),) if a.get("state") == "slow" else ())}
+                print(send(Command(name, arguments.get(name, ()))))
     except SystemExit as e:
         raise RuntimeError(str(e.code) if e.code not in (None, 0) else out.getvalue()) from None
+    finally:
+        INSTANCE = previous
     return [{"type": "text", "text": out.getvalue().strip()}]
 
 
 def mcp() -> int:
-    """A stdio MCP server (JSON-RPC 2.0, one message per line) exposing the fleet and session commands as tools."""
-    for raw in sys.stdin:
-        if not raw.strip():
-            continue
-        msg = json.loads(raw)
-        if "id" not in msg:  # a notification (notifications/initialized): no answer
-            continue
-        method, params = msg.get("method"), msg.get("params") or {}
-        try:
-            if method == "initialize":
-                result = {"protocolVersion": params.get("protocolVersion", "2025-06-18"),
-                          "capabilities": {"tools": {}}, "serverInfo": {"name": "noemu", "version": "0.2"}}
-            elif method == "tools/list":
-                result = {"tools": [{"name": n, "description": d, "inputSchema": {
-                    "type": "object", "properties": props, "required": req}} for n, (d, props, req) in TOOLS.items()]}
-            elif method == "tools/call":
-                try:
-                    result = {"content": run_tool(params["name"], params.get("arguments") or {})}
-                except (RuntimeError, OSError, KeyError, ValueError) as e:
-                    text = str(e) if str(e).startswith("noemu:") else f"noemu: {e}"
-                    result = {"content": [{"type": "text", "text": text}], "isError": True}
-            elif method == "ping":
-                result = {}
-            else:
-                raise LookupError(method)
-            reply = {"jsonrpc": "2.0", "id": msg["id"], "result": result}
-        except LookupError as e:
-            reply = {"jsonrpc": "2.0", "id": msg["id"], "error": {"code": -32601, "message": f"unknown method {e}"}}
-        sys.stdout.write(json.dumps(reply) + "\n")
-        sys.stdout.flush()
-    return 0
+    from noemu.mcp_server import run
+    return run()
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -515,6 +523,8 @@ def main(argv: list[str] | None = None) -> int:
     if rest[:1] in (["-h"], ["--help"]):  # `noemu build --help` must not start a build
         print(__doc__)
         return 0
+    if cmd in ("mcp", "stop") and rest:
+        raise NoemuError("invalid_argument", f"{cmd} takes no arguments")
     if cmd == "mcp":
         return mcp()
     if cmd == "doctor":
@@ -525,14 +535,11 @@ def main(argv: list[str] | None = None) -> int:
         return stop()
     if cmd in ("build", "pool", "spawn", "_refill", "list", "sleep", "wake", "destroy"):
         return fleet(cmd, rest)
-    if cmd in ("screen", "tap", "type", "scroll", "back", "rotate", "kill", "leaks", "wait", "open", "network", "shot", "logs",
+    if cmd in ("screen", "tap", "type", "scroll", "back", "rotate", "restore-activity", "kill", "leaks", "wait", "open", "network", "shot", "logs",
                "crawl"):
-        line = " ".join([cmd] + rest)
-        if cmd == "type" and len(rest) >= 2:
-            line = f"type {rest[0]}\t{' '.join(rest[1:])}"
         if cmd == "shot" and rest:
-            line = f"shot {Path(rest[0]).resolve()}"
-        print(send(line, timeout=3600 if cmd == "crawl" else 900 if cmd == "leaks" else 120))
+            rest = [str(Path(rest[0]).resolve()), *rest[1:]]
+        print(send(Command(cmd, tuple(rest)), timeout=3600 if cmd == "crawl" else 900 if cmd == "leaks" else 120))
         return 0
     print(__doc__)
     return 2
