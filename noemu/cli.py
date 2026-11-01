@@ -185,12 +185,13 @@ def stop() -> int:
 # Fleet ------------------------------------------------------------------------------------------------------------
 
 def build(args: list[str]) -> int:
+    opts = options(args)
     STATE.mkdir(parents=True, exist_ok=True)
     spec = STATE / "launch.json"
     spec.unlink(missing_ok=True)
     print("noemu: building (log: .gradle/noemu/build.log)", flush=True)
     t0 = time.time()
-    if gradle(options(args), ["-Dnoemu.recordOnly=true"], STATE / "build.log").wait() != 0 or not spec.exists():
+    if gradle(opts, ["-Dnoemu.recordOnly=true"], STATE / "build.log").wait() != 0 or not spec.exists():
         build_failed(STATE / "build.log")
     stale = [d for d in instances() if d.joinpath("build").read_text() != build_id()]
     for d in stale:  # a pooled instance runs the old code: never hand it out

@@ -77,6 +77,20 @@ class ProcessSafetyTest(unittest.TestCase):
 
 
 class ArgumentsTest(unittest.TestCase):
+    def test_rejected_build_preserves_recorded_launch_and_log(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            spec = root / "launch.json"
+            log = root / "build.log"
+            spec.write_text("recorded launch")
+            log.write_text("previous build")
+            with mock.patch.object(cli, "STATE", root), mock.patch.object(cli, "gradle") as gradle, \
+                    self.assertRaises(SystemExit):
+                cli.build(["--typo", "value"])
+            gradle.assert_not_called()
+            self.assertEqual(spec.read_text(), "recorded launch")
+            self.assertEqual(log.read_text(), "previous build")
+
     def test_bad_build_arguments_are_not_ignored(self):
         for args in (["--module"], ["--typo", "value"], ["unexpected"]):
             with self.subTest(args=args), self.assertRaises(SystemExit):
