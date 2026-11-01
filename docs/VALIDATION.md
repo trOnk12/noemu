@@ -11,7 +11,7 @@ needed for editing and was not downloaded. It is not removed from the upstream t
 The baseline was **23 Python tests passing**. The first safety work unit passed
 **30 tests**, including real child-process checks for signaling and cleanup.
 The initial expanded suite passed **44 tests in 0.551 seconds**. Follow-up
-regressions on 2026-11-01 passed **67 tests in 0.396 seconds** in this Linux environment.
+regressions on 2026-11-01 passed **69 tests in 0.394 seconds** in this Linux environment.
 A wheel built successfully and its installed CLI, MCP import, Kotlin sources, init
 script, and service resources passed a smoke check outside the source directory.
 That offline smoke environment reused installed dependencies; it is not a clean
@@ -21,7 +21,7 @@ dependency-resolution test. No Android-conformance or performance result is clai
 
 | Check | Status |
 | --- | --- |
-| Existing Python regressions and new safety/protocol/MCP/benchmark tests | Passed locally (67 tests) |
+| Existing Python regressions and new safety/protocol/MCP/benchmark tests | Passed locally (69 tests) |
 | Wheel build and installed-package resource smoke check | Passed locally; existing dependencies reused |
 | Installed MCP stdio integration | Failed locally: initialization response timed out after 10 seconds in the restricted sandbox |
 | Fully isolated install with freshly resolved dependencies | Pending CI |
@@ -65,6 +65,15 @@ required Kotlin, live-driver, and isolated-install gate from establishing an out
   measurement is `memory unknown` rather than zero. Real Linux child-process tests
   cover running and sleeping processes, identity mismatch, and denied measurement.
   macOS execution remains unverified.
+- Python command/result validation now rejects unpaired Unicode surrogates. The
+  regressions failed before the fix and pass afterward; valid emoji, Polish and
+  Japanese text, and escaped whitespace still round-trip without replacement.
+
+The driver request parser now uses strict `JsonReader` parsing before command
+validation, with duplicate-field checks, complete-document consumption, a nesting
+limit, and Unicode validation. Kotlin regressions cover these cases and preserve
+integer types for protocol fields. **The parser change and Kotlin regressions are
+unverified:** the local fixture gate still stops at its missing-wrapper prerequisite.
 
 The driver observation code also now catches only `Resources.NotFoundException`
 when a View ID has no compiled resource name. Generated IDs retain their observation

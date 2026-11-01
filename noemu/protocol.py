@@ -23,6 +23,19 @@ class NoemuError(RuntimeError):
         self.code, self.result = code, result
 
 
+def _validate_unicode(value: Any) -> None:
+    """JSON escapes may contain lone surrogates even after strict UTF-8 decoding."""
+    if isinstance(value, str):
+        value.encode("utf-8")
+    elif isinstance(value, dict):
+        for key, item in value.items():
+            _validate_unicode(key)
+            _validate_unicode(item)
+    elif isinstance(value, (tuple, list)):
+        for item in value:
+            _validate_unicode(item)
+
+
 @dataclass(frozen=True)
 class Command:
     name: str
@@ -32,10 +45,16 @@ class Command:
         if not isinstance(self.name, str) or not isinstance(self.args, (tuple, list)):
             raise NoemuError("invalid_argument", "command requires a name and string arguments")
         object.__setattr__(self, "args", tuple(self.args))
+        if any(not isinstance(a, str) for a in self.args):
+            raise NoemuError("invalid_argument", "command arguments must be strings")
+        try:
+            _validate_unicode((self.name, self.args))
+        except UnicodeError as error:
+            raise NoemuError("invalid_argument", "command contains an unpaired Unicode surrogate") from error
         if self.name not in COMMANDS:
             raise NoemuError("unsupported", f"unknown command {self.name}")
         lo, hi = COMMANDS[self.name]
-        if not lo <= len(self.args) <= hi or any(not isinstance(a, str) for a in self.args):
+        if not lo <= len(self.args) <= hi:
             raise NoemuError("invalid_argument", f"{self.name} requires {lo}..{hi} string arguments")
         a = self.args
         if self.name in ("tap", "type", "open") and not a[0]:
@@ -110,6 +129,7 @@ class Result:
         try:
             value = json.loads(payload.decode("utf-8"), parse_constant=reject_constant,
                                object_pairs_hook=unique_fields)
+            _validate_unicode(value)
             if not isinstance(value, dict) or type(value.get("version")) is not int or value["version"] != VERSION:
                 raise ValueError("unsupported response version")
             if value.get("request_id") != request_id:

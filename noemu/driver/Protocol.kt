@@ -1,8 +1,12 @@
 package dev.noemu
 
+import android.util.JsonReader
+import android.util.JsonToken
 import org.json.JSONArray
 import org.json.JSONObject
 import java.io.ByteArrayOutputStream
+import java.io.IOException
+import java.io.StringReader
 import java.net.Socket
 import java.nio.charset.CodingErrorAction
 
@@ -37,7 +41,62 @@ object Protocol {
         }
         val decoder = Charsets.UTF_8.newDecoder().onMalformedInput(CodingErrorAction.REPORT)
             .onUnmappableCharacter(CodingErrorAction.REPORT)
-        return JSONObject(decoder.decode(java.nio.ByteBuffer.wrap(buffer.toByteArray())).toString())
+        return parse(decoder.decode(java.nio.ByteBuffer.wrap(buffer.toByteArray())).toString())
+    }
+
+    /** JSONObject's text constructor accepts non-JSON syntax and ignores trailing
+     * input. Parse strictly before applying the command schema in decode(). */
+    fun parse(text: String): JSONObject {
+        fun invalid(message: String): Nothing = throw DriverFailure("protocol_error", message)
+        val reader = JsonReader(StringReader(text)).apply { isLenient = false }
+        fun string(value: String): String {
+            if (!Charsets.UTF_8.newEncoder().canEncode(value)) invalid("unpaired Unicode surrogate")
+            return value
+        }
+        fun value(depth: Int): Any {
+            if (depth > 32) invalid("JSON nesting exceeds 32 levels")
+            return when (reader.peek()) {
+                JsonToken.BEGIN_OBJECT -> {
+                    val result = JSONObject()
+                    reader.beginObject()
+                    while (reader.hasNext()) {
+                        val name = string(reader.nextName())
+                        if (result.has(name)) invalid("duplicate JSON field $name")
+                        result.put(name, value(depth + 1))
+                    }
+                    reader.endObject()
+                    result
+                }
+                JsonToken.BEGIN_ARRAY -> {
+                    val result = JSONArray()
+                    reader.beginArray()
+                    while (reader.hasNext()) result.put(value(depth + 1))
+                    reader.endArray()
+                    result
+                }
+                JsonToken.STRING -> string(reader.nextString())
+                JsonToken.NUMBER -> {
+                    val number = reader.nextString()
+                    number.toIntOrNull() ?: number.toLongOrNull()
+                        ?: number.toDoubleOrNull()?.takeIf { it.isFinite() }
+                        ?: invalid("invalid or out-of-range JSON number")
+                }
+                JsonToken.BOOLEAN -> reader.nextBoolean()
+                JsonToken.NULL -> { reader.nextNull(); JSONObject.NULL }
+                else -> invalid("unexpected JSON token")
+            }
+        }
+        try {
+            return reader.use {
+                val result = value(0) as? JSONObject ?: invalid("request must be a JSON object")
+                if (reader.peek() != JsonToken.END_DOCUMENT) invalid("trailing data after request")
+                result
+            }
+        } catch (error: IOException) {
+            invalid(error.message ?: "invalid JSON")
+        } catch (error: IllegalStateException) {
+            invalid(error.message ?: "invalid JSON structure")
+        }
     }
 
     fun decode(value: JSONObject): DriverCommand {
@@ -59,7 +118,7 @@ object Protocol {
         if (name in setOf("tap", "type", "open") && args[0].isEmpty()) invalid("empty target")
         fun number(index: Int, range: LongRange) {
             if (index >= args.size) return
-            val n = args[index].takeIf { it.matches(Regex("[0-9]+")) }?.toLongOrNull()
+            val n = args[index].takeIf { it.length <= 20 && it.matches(Regex("[0-9]+")) }?.toLongOrNull()
             if (n == null || n !in range) invalid("argument $index must be in $range")
         }
         when (name) {

@@ -56,8 +56,23 @@ class CommandTest(unittest.TestCase):
             with self.subTest(request_id=request_id, timeout=timeout), self.assertRaises(NoemuError):
                 Command("screen").encode(request_id, timeout)
 
+    def test_unpaired_surrogates_are_not_sent_as_corrupted_text(self):
+        for text in ("broken\ud800", "broken\udfff"):
+            with self.subTest(text=repr(text)), self.assertRaises(NoemuError) as error:
+                Command("type", ("field", text)).encode("request", 10)
+            self.assertEqual(error.exception.code, "invalid_argument")
+        text = "Zażółć 😀 日本語\n\t"
+        self.assertEqual(json.loads(Command("type", ("field", text)).encode("request", 10))["args"][1], text)
+
 
 class ResultTest(unittest.TestCase):
+    def test_invalid_unicode_in_evidence_is_a_typed_protocol_error(self):
+        for changes in ({"text": "bad\ud800"}, {"limitations": ["bad\udfff"]},
+                        {"error": {"code": "bad", "message": "bad\ud800"}, "status": "failed"}):
+            with self.subTest(changes=changes), self.assertRaises(NoemuError) as error:
+                Result.decode(json.dumps(reply(**changes)).encode(), "request", None)
+            self.assertEqual(error.exception.code, "protocol_error")
+
     def test_observation_is_validated_before_targets_are_exposed(self):
         observation = {"id": "obs", "activity": "Main", "elements": [{
             "ref": "obs:0", "label": "Save", "kind": "button", "selector": "id:app:id/save",
