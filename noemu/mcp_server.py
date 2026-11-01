@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import sys
+import json
 from importlib.metadata import PackageNotFoundError, version
 
 import anyio
@@ -38,6 +39,30 @@ class BoundedInput:
             return "{\n"
 
 
+class BoundedOutput:
+    """Bound the SDK's complete serialized envelope, including duplicated evidence."""
+    def __init__(self, stream):
+        self.stream = stream
+
+    async def write(self, message: str):
+        if len(message.encode("utf-8")) > MAX_MESSAGE_BYTES:
+            # This is SDK-generated JSON, not a second request parser. Preserve
+            # correlation when possible, but never echo an unbounded request ID.
+            envelope = json.loads(message)
+            error = {"jsonrpc": "2.0", "id": envelope.get("id"), "error": {
+                "code": -32603,
+                "message": "noemu: response exceeds 1 MiB; operation may have completed; inspect state before retrying",
+                "data": {"code": "message_too_large", "status": "inconclusive"}}}
+            message = json.dumps(error, ensure_ascii=True) + "\n"
+            if len(message.encode("utf-8")) > MAX_MESSAGE_BYTES:
+                error["id"] = None
+                message = json.dumps(error, ensure_ascii=True) + "\n"
+        return await self.stream.write(message)
+
+    async def flush(self):
+        await self.stream.flush()
+
+
 async def serve() -> None:
     from noemu import cli
 
@@ -70,7 +95,7 @@ async def serve() -> None:
                 return types.CallToolResult(content=[types.TextContent(type="text", text=str(error))],
                                             structuredContent=structured, isError=True)
 
-    async with stdio_server(stdin=BoundedInput(sys.stdin), stdout=anyio.wrap_file(sys.stdout)) as (read, write):
+    async with stdio_server(stdin=BoundedInput(sys.stdin), stdout=BoundedOutput(anyio.wrap_file(sys.stdout))) as (read, write):
         await server.run(read, write, server.create_initialization_options())
 
 

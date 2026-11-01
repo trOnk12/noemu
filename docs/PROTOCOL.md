@@ -33,6 +33,14 @@ and MCP use the same command-specific timeout (120 seconds normally, 900 for
 heap analysis, 3600 for crawling). Legacy build/fleet operations do not yet
 produce a driver result; the supervisor introduces their identities in milestone B.
 
+The MCP stdio adapter also limits the complete serialized reply to 1 MiB. This
+includes both readable content and structured evidence. An oversized reply becomes
+a JSON-RPC `-32603` error with `error.data.code: "message_too_large"` and
+`error.data.status: "inconclusive"`. The operation may already have completed;
+inspect state before retrying. The request ID is preserved unless echoing that ID
+would itself exceed the reply limit, in which case the error uses a null ID.
+The session remains available for later requests.
+
 Current limits:
 
 - Build identity is legacy metadata, or null for a direct start, not an immutable
