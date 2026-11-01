@@ -32,8 +32,10 @@ dependency-resolution test. No Android-conformance or performance result is clai
 
 ## Published branch and CI blocker
 
-The implementation is published in [PR #1](https://github.com/trOnk12/noemu/pull/1)
-on `codex/noemu-foundation`, preserving upstream history and the existing demo GIF.
+The foundation in [PR #1](https://github.com/trOnk12/noemu/pull/1) was merged into
+`main` at `63fbaccf6699d7cf0691b57460eb0dfce0e81085` on 2026-11-01, preserving
+upstream history and the existing demo GIF. The merge did not pass or waive the
+unfinished validation gates. Subsequent fixes use `codex/noemu-validation-fixes`.
 GitHub Actions [run 41296966023](https://github.com/trOnk12/noemu/actions/runs/41296966023)
 did not start its test jobs: GitHub reports that the account is locked due to a
 billing issue. Cancelled matrix jobs are not passing checks. This prevents the

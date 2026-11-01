@@ -11,7 +11,7 @@ The goal is to make Android behavior as easy to explore, reproduce, and compare
 as source code. A successful JVM operation establishes what happened in that
 simulation. Verification on Android is a separate, planned capability.
 
-> **Experimental development branch — [draft PR #1](https://github.com/trOnk12/noemu/pull/1).**
+> **Experimental — validation is incomplete.**
 > Milestone A is incomplete. Python regressions pass locally; Kotlin compilation
 > and live-driver checks remain unverified, and the installed MCP stdio check
 > timed out in the local test environment. The shared supervisor, immutable builds,
@@ -49,17 +49,18 @@ hardware, graphics, and operating-system behavior may be unavailable or differ.
 
 ## Install
 
-To evaluate the draft implementation described here, select its branch explicitly.
-The default branch does not yet contain these changes.
+The foundation implementation is available on `main`. It is experimental; a merge
+does not establish that the Android validation gates have passed. Install from
+source to evaluate the current development version:
 
 ```sh
-pipx install 'git+https://github.com/trOnk12/noemu.git@codex/noemu-foundation'
+pipx install 'git+https://github.com/trOnk12/noemu.git@main'
 ```
 
 For development, install the checked-out revision:
 
 ```sh
-git clone --branch codex/noemu-foundation https://github.com/trOnk12/noemu.git
+git clone https://github.com/trOnk12/noemu.git
 cd noemu
 python -m venv .venv
 . .venv/bin/activate

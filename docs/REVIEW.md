@@ -1,13 +1,14 @@
 # Review and continuation guide
 
-This guide is for maintainers, external reviewers, and coding agents reviewing
-[draft PR #1](https://github.com/trOnk12/noemu/pull/1). The repository and PR are
-public. Describe implemented behavior separately from verified behavior, and keep
-unfinished checks visible.
+This guide is for maintainers and coding agents continuing the foundation work.
+[PR #1](https://github.com/trOnk12/noemu/pull/1) was merged into `main` on
+2026-11-01. Follow-up validation fixes use `codex/noemu-validation-fixes`. Describe
+implemented behavior separately from verified behavior, and keep unfinished checks
+visible. A merged PR does not establish a passing validation gate.
 
 ## Scope and current state
 
-The PR implements part of milestone A: process and instance safety, versioned JSON
+The foundation implements part of milestone A: process and instance safety, versioned JSON
 transport, truthful CLI/MCP failures, structured observations, UI targeting changes,
 maintained fixtures, and package/driver CI definitions. It does not complete A or
 implement the supervisor, replay, Android verification, or experiment engine.
@@ -22,7 +23,7 @@ billing issue; this is not evidence for or against the code's runtime correctnes
 Work from a normal clone and inspect the current remote branch before editing:
 
 ```sh
-git clone --branch codex/noemu-foundation https://github.com/trOnk12/noemu.git
+git clone --branch codex/noemu-validation-fixes https://github.com/trOnk12/noemu.git
 cd noemu
 git status --short --branch
 git log -5 --oneline
@@ -101,6 +102,7 @@ and update the PR and validation record with actual results.
 
 Milestone A requires passing Python, both driver fixtures, and clean package-install
 checks, with truthful failure paths. Advance to B only when that gate passes.
-Keep the PR in draft while these checks are unresolved. Before merging, update
-the README's draft/branch installation instructions to match the release state.
+Keep follow-up PRs in draft while these checks are unresolved. Ensure installation
+instructions match the branch being evaluated, and retain the experimental status
+until its documented validation gates pass.
 Publishing fixes to the review branch does not require merging or releasing them.
