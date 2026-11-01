@@ -92,6 +92,10 @@ def request(command: Command, timeout: float = 120) -> Result:
         if not 1 <= port <= 65535:
             raise NoemuError("invalid_state", "invalid driver port")
         with socket.create_connection(("127.0.0.1", port), timeout=timeout) as connection:
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                raise TimeoutError()
+            connection.settimeout(remaining)
             connection.sendall(payload)
             data = bytearray()
             while b"\n" not in data:

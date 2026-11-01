@@ -21,6 +21,11 @@ The result includes `version`, `request_id`, `identity` (instance, build, profil
 A non-passed result carries an error code and message. The client rejects an
 unsupported version, a mismatched request or instance identity, invalid JSON,
 truncated replies, and contradictory success/error fields.
+Duplicate JSON keys and malformed evidence are rejected too: capabilities,
+limitations, and artifact references must be strings; observations must contain
+typed element state, valid bounds, and references scoped to that observation.
+Connection establishment, sending, and response reads share the client's single
+deadline. If connection establishment consumes that budget, no command is sent.
 
 Current limits:
 
