@@ -14,7 +14,7 @@ implement the supervisor, replay, Android verification, or experiment engine.
 
 Read [VALIDATION.md](VALIDATION.md), [PROTOCOL.md](PROTOCOL.md), and
 [ROADMAP.md](ROADMAP.md) before extending the implementation. The latest recorded
-local suite has 69 passing Python tests. Wheel smoke checks reused dependencies.
+local suite has 70 passing Python tests. Wheel smoke checks reused dependencies.
 Installed MCP stdio initialization timed out. Kotlin and live-driver validation
 have not passed. GitHub Actions jobs were blocked before execution by an account
 billing issue; this is not evidence for or against the code's runtime correctness.
@@ -84,6 +84,9 @@ Do not turn unavailable prerequisites or cancelled jobs into skips or passes.
    its dependency versions, and inspect cancellation and large-message behavior.
    The in-process suite uses a test-only timer for this sandbox's worker wakeup
    restriction; it is not equivalent to a working installed transport.
+   `tests/mcp_sandbox_diagnostic.py` isolates that restriction with a timer-assisted
+   installed server. Its success never substitutes for `tests/mcp_stdio.py`, which
+   also verifies UTF-8 under ASCII output settings, oversized input, and stdin EOF.
 5. **Runtime changes.** Compile and run both fixtures before accepting Kotlin
    changes. Add a regression for each confirmed defect. Activity restoration must
    continue to state that application statics and singletons survive.

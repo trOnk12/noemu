@@ -41,7 +41,8 @@ class BoundedInput:
 
 class BoundedOutput:
     """Bound the SDK's complete serialized envelope, including duplicated evidence."""
-    def __init__(self, stream):
+    def __init__(self, stream, *, binary=False):
+        self.binary = binary
         self.stream = stream
 
     async def write(self, message: str):
@@ -57,10 +58,16 @@ class BoundedOutput:
             if len(message.encode("utf-8")) > MAX_MESSAGE_BYTES:
                 error["id"] = None
                 message = json.dumps(error, ensure_ascii=True) + "\n"
-        return await self.stream.write(message)
+        return await self.stream.write(message.encode("utf-8") if self.binary else message)
 
     async def flush(self):
         await self.stream.flush()
+
+
+def stdio_output(stream):
+    # Use UTF-8 regardless of PYTHONIOENCODING/locale. Write to the existing
+    # binary buffer without creating a text wrapper that owns/closes stdout.
+    return BoundedOutput(anyio.wrap_file(stream.buffer), binary=True)
 
 
 async def serve() -> None:
@@ -95,7 +102,7 @@ async def serve() -> None:
                 return types.CallToolResult(content=[types.TextContent(type="text", text=str(error))],
                                             structuredContent=structured, isError=True)
 
-    async with stdio_server(stdin=BoundedInput(sys.stdin), stdout=BoundedOutput(anyio.wrap_file(sys.stdout))) as (read, write):
+    async with stdio_server(stdin=BoundedInput(sys.stdin), stdout=stdio_output(sys.stdout)) as (read, write):
         await server.run(read, write, server.create_initialization_options())
 
 

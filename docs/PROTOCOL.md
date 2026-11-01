@@ -46,6 +46,10 @@ and MCP use the same command-specific timeout (120 seconds normally, 900 for
 heap analysis, 3600 for crawling). Legacy build/fleet operations do not yet
 produce a driver result; the supervisor introduces their identities in milestone B.
 
+MCP stdin and stdout use UTF-8 regardless of Python's inherited output encoding
+or locale. The adapter writes to the existing binary stdout buffer without taking
+ownership of or closing the process's standard stream.
+
 The MCP stdio adapter also limits the complete serialized reply to 1 MiB. This
 includes both readable content and structured evidence. An oversized reply becomes
 a JSON-RPC `-32603` error with `error.data.code: "message_too_large"` and

@@ -11,7 +11,7 @@ needed for editing and was not downloaded. It is not removed from the upstream t
 The baseline was **23 Python tests passing**. The first safety work unit passed
 **30 tests**, including real child-process checks for signaling and cleanup.
 The initial expanded suite passed **44 tests in 0.551 seconds**. Follow-up
-regressions on 2026-11-01 passed **69 tests in 0.394 seconds** in this Linux environment.
+regressions on 2026-11-01 passed **70 tests in 0.332 seconds** in this Linux environment.
 A wheel built successfully and its installed CLI, MCP import, Kotlin sources, init
 script, and service resources passed a smoke check outside the source directory.
 That offline smoke environment reused installed dependencies; it is not a clean
@@ -21,7 +21,7 @@ dependency-resolution test. No Android-conformance or performance result is clai
 
 | Check | Status |
 | --- | --- |
-| Existing Python regressions and new safety/protocol/MCP/benchmark tests | Passed locally (69 tests) |
+| Existing Python regressions and new safety/protocol/MCP/benchmark tests | Passed locally (70 tests) |
 | Wheel build and installed-package resource smoke check | Passed locally; existing dependencies reused |
 | Installed MCP stdio integration | Failed locally: initialization response timed out after 10 seconds in the restricted sandbox |
 | Fully isolated install with freshly resolved dependencies | Pending CI |
@@ -68,6 +68,12 @@ required Kotlin, live-driver, and isolated-install gate from establishing an out
 - Python command/result validation now rejects unpaired Unicode surrogates. The
   regressions failed before the fix and pass afterward; valid emoji, Polish and
   Japanese text, and escaped whitespace still round-trip without replacement.
+- MCP output now encodes UTF-8 directly to stdout's binary buffer, regardless of
+  the inherited locale or `PYTHONIOENCODING`. A timer-assisted installed-server
+  experiment completed initialization but timed out when echoing a Polish,
+  Japanese, and emoji request ID under ASCII output settings. The encoding unit
+  regression and the same diagnostic pass after the fix. The normal subprocess
+  gate remains blocked as described below.
 
 The driver request parser now uses strict `JsonReader` parsing before command
 validation, with duplicate-field checks, complete-document consumption, a nesting
@@ -89,11 +95,31 @@ initialization with `MCP response deadline exceeded` after 10.021 seconds. The
 framing unit tests deliberately use a synchronous reader; they do not count as a
 passing subprocess integration test.
 
-The managed shell blocks networking, including asyncio's cross-thread socket wakeup.
-A test-only event-loop timer allows in-process MCP worker callbacks to run in that
-sandbox. Production MCP code does not contain that timer. The test suite exercises
-the official SDK session and validation handlers, but this is not a substitute for
-an installed stdio-client integration check in a normal environment.
+The managed shell blocks socket operations: a direct `socket.socketpair()` probe
+raised `PermissionError` with errno 1. This also interferes with asyncio's
+cross-thread wakeups. A test-only event-loop timer allows in-process MCP worker
+callbacks to run in that sandbox. Production MCP code does not contain that timer.
+
+To isolate this restriction, `tests/mcp_sandbox_diagnostic.py` runs the installed
+server with a 10 ms timer and otherwise uses the same subprocess contract test.
+After the UTF-8 fix, this **diagnostic** passed in **1.237 seconds**, covering actual
+pipes, initialization, malformed JSON/UTF-8, draining an oversized line exceeding
+2 MiB, tool discovery, an invalid tool argument, a multilingual ping ID under
+ASCII Python output settings, and a zero exit status after stdin EOF. The test
+client bounds reads and writes and includes child stderr on failures.
+
+Run both checks with the installed wheel's Python interpreter, outside the checkout:
+
+```sh
+"$check_dir/venv/bin/python" "$repo/tests/mcp_stdio.py"
+"$check_dir/venv/bin/python" "$repo/tests/mcp_sandbox_diagnostic.py"
+```
+
+The variables and clean-install instructions are in [REVIEW.md](REVIEW.md). The
+first command is the required gate. The second changes scheduling and **does not
+replace or pass that gate**. The normal launch still times out at initialization
+in this sandbox. CI now also runs the unmodified subprocess test against the fresh
+wheel installation; its result remains pending while GitHub jobs cannot start.
 
 ## Material limitations
 
