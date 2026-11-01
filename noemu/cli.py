@@ -50,6 +50,8 @@ import sys
 import time
 from pathlib import Path
 
+from noemu import processes
+
 HERE = Path(__file__).resolve().parent
 # In the project's .gradle folder: ignored by git in Android projects, and no build or clean deletes it.
 STATE = Path(".gradle/noemu")
@@ -57,8 +59,17 @@ FLEET = Path(".gradle/noemu-fleet")
 INSTANCE: str | None = None  # fleet instance the session commands go to (--id or NOEMU_ID); None: `noemu start`'s
 
 
+def instance_path(name: str) -> Path:
+    if not isinstance(name, str) or not re.fullmatch(r"0|[1-9][0-9]{0,9}", name):
+        sys.exit("noemu: invalid instance id; expected a nonnegative decimal number")
+    path = FLEET / name
+    if path.is_symlink() or path.resolve().parent != FLEET.resolve():
+        sys.exit("noemu: instance directory escapes the fleet")
+    return path
+
+
 def target() -> Path:
-    return FLEET / INSTANCE if INSTANCE else STATE
+    return instance_path(INSTANCE) if INSTANCE is not None else STATE
 
 
 def send(line: str, timeout: float = 120) -> str:
@@ -101,8 +112,12 @@ def options(args: list[str]) -> dict:
     opts = {"--module": ":app", "--task": "testDebugUnitTest", "--activity": None, "--data": None}
     it = iter(args)
     for a in it:
-        if a in opts:
-            opts[a] = next(it)
+        if a not in opts:
+            sys.exit(f"noemu: unknown build option {a}")
+        value = next(it, None)
+        if value is None or value.startswith("--"):
+            sys.exit(f"noemu: {a} requires a value")
+        opts[a] = value
     return opts
 
 
@@ -122,7 +137,7 @@ def start(args: list[str]) -> int:
     if opts["--data"]:
         props.append(f"-Dnoemu.data={opts['--data']}")
     proc = gradle(opts, props, STATE / "gradle.log")
-    (STATE / "pid").write_text(str(proc.pid))
+    processes.remember(STATE, proc.pid)
     print(f"noemu: building and starting the app (log: {STATE / 'gradle.log'})", flush=True)
     t0 = time.time()
     while not (STATE / "port").exists():
@@ -138,15 +153,9 @@ def start(args: list[str]) -> int:
 
 
 def stop() -> int:
-    try:
-        print(send("quit", timeout=10))
-    except (OSError, SystemExit):
-        pid = target() / "pid"
-        if pid.exists():
-            try:
-                os.killpg(int(pid.read_text()), signal.SIGTERM)
-            except OSError:
-                pass
+    # A Gradle wrapper PID is not an app process identity. Never kill an
+    # unverified process group as a fallback for an unreachable driver.
+    print(send("quit", timeout=10))
     (target() / "port").unlink(missing_ok=True)
     return 0
 
@@ -201,7 +210,7 @@ def launch() -> Path:
     proc = subprocess.Popen([spec["java"], *args, "-cp", spec["classpath"], "org.junit.runner.JUnitCore",
                              "dev.noemu.NoemuDriver"], cwd=spec["workingDir"], stdout=open(out / "log.txt", "w"),
                             stderr=subprocess.STDOUT, start_new_session=True)
-    (out / "pid").write_text(str(proc.pid))
+    processes.remember(out, proc.pid)
     (out / "state").write_text("starting")
     return out
 
@@ -213,11 +222,7 @@ def wait_up(dirs: list[Path], timeout: float = 600) -> None:
 
 
 def alive(d: Path) -> bool:
-    try:
-        os.kill(int((d / "pid").read_text()), 0)
-        return (d / "state").read_text() != "destroyed"
-    except (OSError, ValueError):
-        return False
+    return not d.is_symlink() and state_of(d) != "destroyed" and processes.alive(d)
 
 
 def state_of(d: Path) -> str:
@@ -225,37 +230,26 @@ def state_of(d: Path) -> str:
 
 
 def instances() -> list[Path]:
-    dirs = [d for d in FLEET.glob("*") if d.name.isdigit() and (d / "pid").exists() and alive(d)] if FLEET.exists() else []
+    dirs = [d for d in FLEET.glob("*") if re.fullmatch(r"0|[1-9][0-9]{0,9}", d.name) and not d.is_symlink() and (d / "pid").exists() and alive(d)] if FLEET.exists() else []
     return sorted(dirs, key=lambda d: int(d.name))
 
 
 def signal_to(d: Path, sig: int, state: str) -> None:
-    os.killpg(int((d / "pid").read_text()), sig)
+    processes.send_signal(d, sig)
     (d / "state").write_text(state)
 
 
-def robolectric_dirs(d: Path) -> set[Path]:
-    """Robolectric's temporary directories this instance uses: the app's data (files, databases, preferences) and
-    its unpacked native runtime (about 200 MB). A killed JVM leaves both behind."""
-    found = set()
-    data = Path((d / "datadir").read_text()) if (d / "datadir").exists() else None
-    found |= {p for p in ([data] + list(data.parents) if data else []) if p.name.startswith("robolectric-")}
-    try:  # what the JVM has mapped (Linux): the native runtime's libraries
-        maps = Path(f"/proc/{(d / 'pid').read_text()}/maps").read_text()
-        found |= {Path(m) for m in set(re.findall(r"(/\S*?/robolectric-[^/\s]+)", maps))}
-    except (OSError, ValueError):
-        pass
-    return found
-
-
 def destroy_one(d: Path) -> None:
-    dirs = robolectric_dirs(d)
-    try:
-        signal_to(d, signal.SIGKILL, "destroyed")
-    except OSError:
-        (d / "state").write_text("destroyed")
-    for root in dirs | {d / "tmp"}:
-        shutil.rmtree(root, ignore_errors=True)
+    processes.terminate(d)
+    (d / "state").write_text("destroyed")
+    (d / "port").unlink(missing_ok=True)
+    # Only this instance's allocated root is owned by NoEmu. datadir and
+    # /proc mappings are observations, not permission to delete other paths.
+    temporary = d / "tmp"
+    if temporary.is_symlink():
+        temporary.unlink()
+    elif temporary.exists():
+        shutil.rmtree(temporary)
 
 
 def memory(d: Path) -> int:
@@ -294,7 +288,7 @@ def spawn(refill: bool = True) -> int:
             sys.exit(f"noemu: the instance didn't start; see {d / 'log.txt'}")
         (d / "state").write_text("running")
     if refill and d.joinpath("claimed").exists():  # keep the pool at its size: start a replacement, detached, that sleeps once up
-        subprocess.Popen([sys.executable, str(Path(__file__).resolve()), "_refill"], cwd=os.getcwd(),
+        subprocess.Popen([sys.executable, "-m", "noemu", "_refill"], cwd=os.getcwd(),
                          stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, start_new_session=True)
     print(f"{d.name} {(d / 'port').read_text()}")
     return 0
@@ -325,11 +319,9 @@ def fleet(cmd: str, rest: list[str]) -> int:
         return 0
     if not rest:
         sys.exit(f"noemu: {cmd} needs an instance id (noemu list)")
-    if rest[0] == "all" and cmd == "destroy" and FLEET.exists():  # also what instances that died left behind
-        for d in FLEET.iterdir():
-            if d.name.isdigit() and not alive(d):
-                shutil.rmtree(d / "tmp", ignore_errors=True)
-    dirs = instances() if rest[0] == "all" else [FLEET / rest[0]]
+    if len(rest) != 1:
+        sys.exit(f"noemu: {cmd} requires exactly one instance id")
+    dirs = instances() if rest[0] == "all" else [instance_path(rest[0])]
     for d in dirs:
         if not (d / "pid").exists():
             sys.exit(f"noemu: no instance {d.name}")
@@ -514,6 +506,8 @@ def main(argv: list[str] | None = None) -> int:
     INSTANCE = os.environ.get("NOEMU_ID") or None
     if len(argv) >= 2 and argv[0] == "--id":
         INSTANCE, argv = argv[1], argv[2:]
+    if INSTANCE is not None:
+        instance_path(INSTANCE)
     if not argv or argv[0] in ("-h", "--help", "help"):
         print(__doc__)
         return 0
@@ -551,6 +545,9 @@ def entry() -> int:
     except BrokenPipeError:  # the reader went away (`noemu screen | head`): not an error
         os.dup2(os.open(os.devnull, os.O_WRONLY), sys.stdout.fileno())
         return 0
+    except (OSError, ValueError, RuntimeError) as error:
+        print(str(error) if str(error).startswith("noemu:") else f"noemu: {error}", file=sys.stderr)
+        return 1
 
 
 if __name__ == "__main__":

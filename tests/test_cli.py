@@ -77,7 +77,7 @@ class FleetTest(unittest.TestCase):
         d.mkdir(parents=True)
         p = subprocess.Popen(["sleep", "60"], start_new_session=True)
         self.procs.append(p)
-        (d / "pid").write_text(str(p.pid))
+        cli.processes.remember(d, p.pid)
         (d / "state").write_text(state)
         (d / "build").write_text(build or cli.build_id())
         (d / "port").write_text(port)
@@ -133,7 +133,7 @@ class FleetTest(unittest.TestCase):
 
     def test_destroy_removes_the_instance_s_temporary_app_data(self):
         d = self.instance("0", "running")
-        data = Path(self.dir.name) / "robolectric-NoemuDriver_serve1" / "com.x-dataDir"
+        data = d / "tmp" / "robolectric-NoemuDriver_serve1" / "com.x-dataDir"
         data.mkdir(parents=True)
         (d / "datadir").write_text(str(data))
         with mock.patch("builtins.print"):
@@ -226,7 +226,7 @@ class McpTest(unittest.TestCase):
 
     def test_a_failing_tool_is_a_tool_error_not_a_crash(self):
         reply, = self.serve({"jsonrpc": "2.0", "id": 1, "method": "tools/call",
-                             "params": {"name": "screen", "arguments": {"id": "nope"}}})
+                             "params": {"name": "screen", "arguments": {"id": "999"}}})
         self.assertTrue(reply["result"]["isError"])
         self.assertIn("isn't running", reply["result"]["content"][0]["text"])
 
