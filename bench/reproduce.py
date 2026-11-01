@@ -38,11 +38,16 @@ class Session:
     def __init__(self, project: Path, log):
         self.project, self.log = project, log
 
-    def __call__(self, *args: str, timeout: int = 900) -> str:
+    def __call__(self, *args: str, timeout: int = 900, expected_error: str | None = None) -> str:
         p = subprocess.run([*NOEMU, *args], cwd=self.project, capture_output=True, text=True, timeout=timeout)
         out = p.stdout + p.stderr
         self.log.write(f"$ noemu {' '.join(args)}\n{out}\n")
         self.log.flush()
+        if expected_error is not None:
+            if p.returncode == 0 or expected_error not in out:
+                raise AssertionError(f"expected command failure containing {expected_error!r}; exit={p.returncode}: {out}")
+        elif p.returncode != 0:
+            raise RuntimeError(f"command {args!r} failed (exit {p.returncode}): {out}")
         return out
 
     def field(self, out: str) -> str:
@@ -59,9 +64,9 @@ def elements(out: str) -> int:
 
 # ------------------------------------------------------------------------------------------------------ the claims
 def jetchat_same_message_twice(s: Session) -> str:
-    for _ in range(2):
+    for attempt in range(2):
         s("type", "Text input", "ok")
-        out = s("tap", "Send")
+        out = s("tap", "Send", expected_error="was already used" if attempt == 1 else None)
     return "" if "was already used" in out else "no crash on the second Send"
 
 
@@ -198,6 +203,8 @@ def main() -> int:
     for case in CASES:
         if wanted and case.name not in wanted:
             continue
+        project = None
+        why = "run incomplete"
         with open(workdir / "logs" / f"{case.name}.txt", "w") as log:
             try:
                 project = checkout(case, workdir)
@@ -208,8 +215,11 @@ def main() -> int:
             except Exception as e:  # a failed clone, patch or command is a FAIL with its reason
                 why = f"{type(e).__name__}: {e}"
             finally:
-                if "project" in locals():
-                    Session(project, log)("stop")
+                if project is not None:
+                    try:
+                        Session(project, log)("stop")
+                    except Exception as error:
+                        why = (why + "; " if why else "") + f"cleanup failed: {error}"
         results.append((case, why))
         print(f"{'PASS' if not why else 'FAIL'}  {case.name}: {case.claim}" + (f"\n      {why}" if why else ""), flush=True)
     passed = sum(1 for _, why in results if not why)

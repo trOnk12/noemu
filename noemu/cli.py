@@ -8,7 +8,8 @@ changes. Made for coding agents in sandboxes without an emulator, and for anyone
     noemu screen                 # numbered elements + a screenshot
     noemu tap 3 | noemu tap "Sign in"
     noemu type 2 "hello@example.com"
-    noemu scroll down [N] | noemu back | noemu rotate [N] | noemu kill | noemu wait 2000
+    noemu scroll down [N] | noemu back | noemu rotate [N] | noemu restore-activity | noemu wait 2000
+    noemu kill                  # legacy alias for restore-activity; application statics survive
     noemu open .SettingsActivity | noemu open myapp://chat/42   # an activity, or a deep link
     noemu network off | noemu network on   # airplane mode: open connections closed, new ones refused, app told
     noemu network slow 300       # 300 ms more each way on every connection (0: none)
@@ -48,7 +49,11 @@ import socket
 import subprocess
 import sys
 import time
+import uuid
 from pathlib import Path
+
+from noemu import processes
+from noemu.protocol import Command, Result, NoemuError, MAX_MESSAGE_BYTES
 
 HERE = Path(__file__).resolve().parent
 # In the project's .gradle folder: ignored by git in Android projects, and no build or clean deletes it.
@@ -57,32 +62,69 @@ FLEET = Path(".gradle/noemu-fleet")
 INSTANCE: str | None = None  # fleet instance the session commands go to (--id or NOEMU_ID); None: `noemu start`'s
 
 
+def instance_path(name: str) -> Path:
+    if not isinstance(name, str) or not re.fullmatch(r"0|[1-9][0-9]{0,9}", name):
+        sys.exit("noemu: invalid instance id; expected a nonnegative decimal number")
+    path = FLEET / name
+    if path.is_symlink() or path.resolve().parent != FLEET.resolve():
+        sys.exit("noemu: instance directory escapes the fleet")
+    return path
+
+
 def target() -> Path:
-    return FLEET / INSTANCE if INSTANCE else STATE
+    return instance_path(INSTANCE) if INSTANCE is not None else STATE
 
 
-def send(line: str, timeout: float = 120) -> str:
+def request(command: Command, timeout: float = 120) -> Result:
+    request_id = str(uuid.uuid4())
+    payload = command.encode(request_id, timeout)
     port_file = target() / "port"
     if not port_file.exists():
-        sys.exit(f"noemu: instance {INSTANCE} isn't running" if INSTANCE else "noemu: not running here; `noemu start` first")
-    # A frozen JVM accepts the connection (the kernel does) and never answers.
+        raise NoemuError("not_running", f"instance {INSTANCE} isn't running" if INSTANCE else "not running here; `noemu start` first")
     state = state_of(target()) if INSTANCE else "running"
     if state == "pooled":
-        sys.exit(f"noemu: instance {INSTANCE} is asleep in the pool; `noemu spawn` hands out a pooled instance")
+        raise NoemuError("instance_unavailable", f"instance {INSTANCE} is asleep in the pool; `noemu spawn` hands out a pooled instance")
     if state == "asleep":
-        sys.exit(f"noemu: instance {INSTANCE} is asleep; `noemu wake {INSTANCE}` first")
+        raise NoemuError("instance_unavailable", f"instance {INSTANCE} is asleep; `noemu wake {INSTANCE}` first")
     try:
-        with socket.create_connection(("127.0.0.1", int(port_file.read_text())), timeout=timeout) as s:
-            s.sendall((line + "\n").encode())
-            data = b""
-            while not data.endswith(b"\n.\n"):
-                chunk = s.recv(65536)
+        port = int(port_file.read_text())
+    except (OSError, ValueError) as error:
+        raise NoemuError("invalid_state", f"cannot read driver port: {error}") from error
+    if not 1 <= port <= 65535:
+        raise NoemuError("invalid_state", "invalid driver port")
+    deadline = time.monotonic() + timeout
+    dispatch_started = False
+    try:
+        with socket.create_connection(("127.0.0.1", port), timeout=timeout) as connection:
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                raise TimeoutError()
+            connection.settimeout(remaining)
+            dispatch_started = True  # Even a failed sendall may write part of a request.
+            connection.sendall(payload)
+            data = bytearray()
+            while b"\n" not in data:
+                remaining = deadline - time.monotonic()
+                if remaining <= 0:
+                    raise TimeoutError()
+                connection.settimeout(remaining)
+                chunk = connection.recv(min(65536, MAX_MESSAGE_BYTES + 1 - len(data)))
                 if not chunk:
-                    break
-                data += chunk
+                    raise NoemuError("protocol_error", "driver closed the connection before a complete response")
+                data.extend(chunk)
+                if len(data) > MAX_MESSAGE_BYTES:
+                    raise NoemuError("message_too_large", "driver response exceeds 1 MiB")
+            return Result.decode(bytes(data), request_id, INSTANCE)
     except TimeoutError:
-        sys.exit(f"noemu: no answer in {timeout:.0f} s; the app may be stuck (`noemu logs`, or `noemu destroy` it)")
-    return data.decode(errors="replace").removesuffix("\n.\n").rstrip(".\n")
+        raise NoemuError("deadline_exceeded", f"no answer in {timeout:g} s; outcome unknown; do not retry a mutation blindly") from None
+    except OSError as error:
+        if dispatch_started:
+            raise NoemuError("connection_lost", f"{error}; outcome unknown; inspect state before retrying") from error
+        raise NoemuError("connection_failed", f"{error}; command was not sent") from error
+
+
+def send(command: Command | str, timeout: float = 120) -> str:
+    return request(Command.legacy(command) if isinstance(command, str) else command, timeout).text()
 
 
 def gradle(opts: dict, props: list[str], log: Path) -> subprocess.Popen:
@@ -101,8 +143,12 @@ def options(args: list[str]) -> dict:
     opts = {"--module": ":app", "--task": "testDebugUnitTest", "--activity": None, "--data": None}
     it = iter(args)
     for a in it:
-        if a in opts:
-            opts[a] = next(it)
+        if a not in opts:
+            sys.exit(f"noemu: unknown build option {a}")
+        value = next(it, None)
+        if value is None or value.startswith("--"):
+            sys.exit(f"noemu: {a} requires a value")
+        opts[a] = value
     return opts
 
 
@@ -122,7 +168,7 @@ def start(args: list[str]) -> int:
     if opts["--data"]:
         props.append(f"-Dnoemu.data={opts['--data']}")
     proc = gradle(opts, props, STATE / "gradle.log")
-    (STATE / "pid").write_text(str(proc.pid))
+    processes.remember(STATE, proc.pid)
     print(f"noemu: building and starting the app (log: {STATE / 'gradle.log'})", flush=True)
     t0 = time.time()
     while not (STATE / "port").exists():
@@ -138,15 +184,9 @@ def start(args: list[str]) -> int:
 
 
 def stop() -> int:
-    try:
-        print(send("quit", timeout=10))
-    except (OSError, SystemExit):
-        pid = target() / "pid"
-        if pid.exists():
-            try:
-                os.killpg(int(pid.read_text()), signal.SIGTERM)
-            except OSError:
-                pass
+    # A Gradle wrapper PID is not an app process identity. Never kill an
+    # unverified process group as a fallback for an unreachable driver.
+    print(send("quit", timeout=10))
     (target() / "port").unlink(missing_ok=True)
     return 0
 
@@ -154,12 +194,13 @@ def stop() -> int:
 # Fleet ------------------------------------------------------------------------------------------------------------
 
 def build(args: list[str]) -> int:
+    opts = options(args)
     STATE.mkdir(parents=True, exist_ok=True)
     spec = STATE / "launch.json"
     spec.unlink(missing_ok=True)
     print("noemu: building (log: .gradle/noemu/build.log)", flush=True)
     t0 = time.time()
-    if gradle(options(args), ["-Dnoemu.recordOnly=true"], STATE / "build.log").wait() != 0 or not spec.exists():
+    if gradle(opts, ["-Dnoemu.recordOnly=true"], STATE / "build.log").wait() != 0 or not spec.exists():
         build_failed(STATE / "build.log")
     stale = [d for d in instances() if d.joinpath("build").read_text() != build_id()]
     for d in stale:  # a pooled instance runs the old code: never hand it out
@@ -188,9 +229,9 @@ def launch() -> Path:
             break
         except FileExistsError:
             continue
-    args = [a for a in spec["jvmArgs"] if not a.startswith(("-Dnoemu.out=", "-Dnoemu.settle=", "-Dnoemu.shots=", "-Xmx"))]
+    args = [a for a in spec["jvmArgs"] if not a.startswith(("-Dnoemu.out=", "-Dnoemu.settle=", "-Dnoemu.shots=", "-Dnoemu.instance=", "-Xmx"))]
     (out / "tmp").mkdir()  # Robolectric unpacks its native runtime (about 200 MB) and the app's data here
-    args += [f"-Xmx{os.environ.get('NOEMU_XMX', '1g')}", f"-Dnoemu.out={out.resolve()}",
+    args += [f"-Xmx{os.environ.get('NOEMU_XMX', '1g')}", f"-Dnoemu.out={out.resolve()}", f"-Dnoemu.instance={out.name}",
              f"-Djava.io.tmpdir={(out / 'tmp').resolve()}"]
     args += [f"-Dnoemu.{k}={os.environ[v]}" for k, v in (("settle", "NOEMU_SETTLE_MS"), ("shots", "NOEMU_SHOTS"),
                                                          ("idle", "NOEMU_IDLE_MIN")) if os.environ.get(v)]
@@ -201,7 +242,7 @@ def launch() -> Path:
     proc = subprocess.Popen([spec["java"], *args, "-cp", spec["classpath"], "org.junit.runner.JUnitCore",
                              "dev.noemu.NoemuDriver"], cwd=spec["workingDir"], stdout=open(out / "log.txt", "w"),
                             stderr=subprocess.STDOUT, start_new_session=True)
-    (out / "pid").write_text(str(proc.pid))
+    processes.remember(out, proc.pid)
     (out / "state").write_text("starting")
     return out
 
@@ -213,11 +254,7 @@ def wait_up(dirs: list[Path], timeout: float = 600) -> None:
 
 
 def alive(d: Path) -> bool:
-    try:
-        os.kill(int((d / "pid").read_text()), 0)
-        return (d / "state").read_text() != "destroyed"
-    except (OSError, ValueError):
-        return False
+    return not d.is_symlink() and state_of(d) != "destroyed" and processes.alive(d)
 
 
 def state_of(d: Path) -> str:
@@ -225,44 +262,31 @@ def state_of(d: Path) -> str:
 
 
 def instances() -> list[Path]:
-    dirs = [d for d in FLEET.glob("*") if d.name.isdigit() and (d / "pid").exists() and alive(d)] if FLEET.exists() else []
+    dirs = [d for d in FLEET.glob("*") if re.fullmatch(r"0|[1-9][0-9]{0,9}", d.name) and not d.is_symlink() and (d / "pid").exists() and alive(d)] if FLEET.exists() else []
     return sorted(dirs, key=lambda d: int(d.name))
 
 
 def signal_to(d: Path, sig: int, state: str) -> None:
-    os.killpg(int((d / "pid").read_text()), sig)
+    processes.send_signal(d, sig)
     (d / "state").write_text(state)
 
 
-def robolectric_dirs(d: Path) -> set[Path]:
-    """Robolectric's temporary directories this instance uses: the app's data (files, databases, preferences) and
-    its unpacked native runtime (about 200 MB). A killed JVM leaves both behind."""
-    found = set()
-    data = Path((d / "datadir").read_text()) if (d / "datadir").exists() else None
-    found |= {p for p in ([data] + list(data.parents) if data else []) if p.name.startswith("robolectric-")}
-    try:  # what the JVM has mapped (Linux): the native runtime's libraries
-        maps = Path(f"/proc/{(d / 'pid').read_text()}/maps").read_text()
-        found |= {Path(m) for m in set(re.findall(r"(/\S*?/robolectric-[^/\s]+)", maps))}
-    except (OSError, ValueError):
-        pass
-    return found
-
-
 def destroy_one(d: Path) -> None:
-    dirs = robolectric_dirs(d)
-    try:
-        signal_to(d, signal.SIGKILL, "destroyed")
-    except OSError:
-        (d / "state").write_text("destroyed")
-    for root in dirs | {d / "tmp"}:
-        shutil.rmtree(root, ignore_errors=True)
+    processes.terminate(d)
+    (d / "state").write_text("destroyed")
+    (d / "port").unlink(missing_ok=True)
+    # Only this instance's allocated root is owned by NoEmu. datadir and
+    # /proc mappings are observations, not permission to delete other paths.
+    temporary = d / "tmp"
+    if temporary.is_symlink():
+        temporary.unlink()
+    elif temporary.exists():
+        shutil.rmtree(temporary)
 
 
-def memory(d: Path) -> int:
-    try:
-        return int(Path(f"/proc/{(d / 'pid').read_text()}/status").read_text().split("VmRSS:")[1].split()[0]) // 1024
-    except (OSError, IndexError, ValueError):
-        return 0
+def memory(d: Path) -> str:
+    size = processes.resident_memory(d)
+    return "memory unknown" if size is None else f"{size / (1024 * 1024):.1f} MiB"
 
 
 def pool(n: int) -> int:
@@ -270,14 +294,17 @@ def pool(n: int) -> int:
     t0 = time.time()
     dirs = [launch() for _ in range(n)]
     wait_up(dirs)
+    failed = False
     for d in dirs:
         if (d / "port").exists():
             signal_to(d, signal.SIGSTOP, "pooled")
-            print(f"{d.name}: in the pool after {time.time() - t0:.0f}s, {memory(d)} MB")
+            print(f"{d.name}: in the pool after {time.time() - t0:.0f}s, {memory(d)}")
         else:
-            destroy_one(d)
+            failed = True
+            if alive(d):
+                destroy_one(d)
             print(f"{d.name}: FAILED to start; see {d / 'log.txt'}")
-    return 0
+    return 1 if failed else 0
 
 
 def spawn(refill: bool = True) -> int:
@@ -294,7 +321,7 @@ def spawn(refill: bool = True) -> int:
             sys.exit(f"noemu: the instance didn't start; see {d / 'log.txt'}")
         (d / "state").write_text("running")
     if refill and d.joinpath("claimed").exists():  # keep the pool at its size: start a replacement, detached, that sleeps once up
-        subprocess.Popen([sys.executable, str(Path(__file__).resolve()), "_refill"], cwd=os.getcwd(),
+        subprocess.Popen([sys.executable, "-m", "noemu", "_refill"], cwd=os.getcwd(),
                          stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, start_new_session=True)
     print(f"{d.name} {(d / 'port').read_text()}")
     return 0
@@ -313,23 +340,27 @@ def fleet(cmd: str, rest: list[str]) -> int:
     if cmd == "build":
         return build(rest)
     if cmd == "pool":
-        return pool(int(rest[0]) if rest else 2)
+        if len(rest) > 1:
+            raise NoemuError("invalid_argument", "pool accepts one size")
+        return pool(Command.integer(rest[0], 1, 4) if rest else 2)
     if cmd == "spawn":
-        return spawn()
+        if rest not in ([], ["--no-refill"]):
+            raise NoemuError("invalid_argument", "spawn accepts only --no-refill")
+        return spawn(refill=not rest)
     if cmd == "_refill":
         return pool(1)
     if cmd == "list":
+        if rest:
+            raise NoemuError("invalid_argument", "list takes no arguments")
         for d in instances():
             port = (d / "port").read_text() if (d / "port").exists() else "-"
-            print(f"{d.name}\t{state_of(d)}\tport {port}\t{memory(d)} MB")
+            print(f"{d.name}\t{state_of(d)}\tport {port}\t{memory(d)}")
         return 0
     if not rest:
         sys.exit(f"noemu: {cmd} needs an instance id (noemu list)")
-    if rest[0] == "all" and cmd == "destroy" and FLEET.exists():  # also what instances that died left behind
-        for d in FLEET.iterdir():
-            if d.name.isdigit() and not alive(d):
-                shutil.rmtree(d / "tmp", ignore_errors=True)
-    dirs = instances() if rest[0] == "all" else [FLEET / rest[0]]
+    if len(rest) != 1:
+        sys.exit(f"noemu: {cmd} requires exactly one instance id")
+    dirs = instances() if rest[0] == "all" else [instance_path(rest[0])]
     for d in dirs:
         if not (d / "pid").exists():
             sys.exit(f"noemu: no instance {d.name}")
@@ -408,7 +439,7 @@ def doctor(args: list[str]) -> int:
 
 # MCP --------------------------------------------------------------------------------------------------------------
 
-ID = {"id": {"type": "string", "description": "instance id, from spawn"}}
+ID = {"id": {"type": "string", "pattern": "^(0|[1-9][0-9]{0,9})$", "description": "instance id, from spawn"}}
 TOOLS = {
     "spawn": ("Get a running app instance: wakes a pooled one (under a second) or starts one. Returns its id and "
               "first screen. Call build first after changing code.", {}, []),
@@ -417,17 +448,25 @@ TOOLS = {
             {**ID, "target": {"type": "string"}}, ["id", "target"]),
     "type": ("Type text into a field (by number or label); returns the new screen.",
              {**ID, "target": {"type": "string"}, "text": {"type": "string"}}, ["id", "target", "text"]),
-    "scroll": ("Scroll (down by default; up, left, right).", {**ID, "direction": {"type": "string"}}, ["id"]),
+    "scroll": ("Scroll a semantic container. Supply target when more than one container matches the axis.",
+               {**ID, "direction": {"type": "string", "enum": ["up", "down", "left", "right"]},
+                "target": {"type": "string", "minLength": 1}}, ["id"]),
     "back": ("Press back.", ID, ["id"]),
-    "rotate": ("Rotate the device; shows what the rotation lost.", ID, ["id"]),
+    "rotate": ("Rotate the activity and observe its state.",
+               {**ID, "count": {"type": "integer", "minimum": 1, "maximum": 100}}, ["id"]),
+    "restore-activity": ("Restore activity saved state in the same JVM; application statics and singletons survive.", ID, ["id"]),
+    "leaks": ("Inspect retained destroyed activities. This may require heap analysis.", ID, ["id"]),
+    "crawl": ("Explore within action and time budgets; report crashes, state loss and unresolved limitations.",
+              {**ID, "steps": {"type": "integer", "minimum": 1, "maximum": 10000},
+               "minutes": {"type": "integer", "minimum": 1, "maximum": 60}}, ["id"]),
     "wait": ("Let the app run for some milliseconds, then return the screen.",
-             {**ID, "ms": {"type": "integer"}}, ["id"]),
+             {**ID, "ms": {"type": "integer", "minimum": 0, "maximum": 120000}}, ["id"]),
     "open": ("Open an activity (.SettingsActivity or a full class name) or a deep link (myapp://...) in the instance; "
              "returns the new screen.", {**ID, "target": {"type": "string"}}, ["id", "target"]),
     "network": ("Airplane mode for the instance: 'off' closes its open connections (a websocket too), refuses new ones "
                 "and tells the app; 'on' brings it back (returns the new screen). 'slow' with delay_ms adds that "
                 "latency each way.",
-                {**ID, "state": {"type": "string", "enum": ["on", "off", "slow"]}, "delay_ms": {"type": "integer"}},
+                {**ID, "state": {"type": "string", "enum": ["on", "off", "slow"]}, "delay_ms": {"type": "integer", "minimum": 0, "maximum": 60000}},
                 ["id", "state"]),
     "shot": ("A screenshot of the instance, as an image.", ID, ["id"]),
     "logs": ("The app's recent log lines.", ID, ["id"]),
@@ -435,77 +474,69 @@ TOOLS = {
     "wake": ("Resume a frozen instance.", ID, ["id"]),
     "destroy": ("End the instance and remove its files.", ID, ["id"]),
     "list": ("All instances: id, state, port, memory.", {}, []),
-    "pool": ("Start N instances asleep, so later spawns are instant.", {"n": {"type": "integer"}}, ["n"]),
+    "pool": ("Start N instances asleep, so later spawns are instant.", {"n": {"type": "integer", "minimum": 1, "maximum": 4}}, ["n"]),
     "build": ("Compile the app and record how it starts (after every code change; pooled instances of the old code "
               "are dropped).", {"module": {"type": "string"}, "task": {"type": "string"}}, []),
 }
 
 
-def run_tool(name: str, a: dict) -> list:
+def run_tool(name: str, a: dict):
     """Runs one tool through the same functions as the command line; returns MCP content."""
     import contextlib, io, base64
+    from noemu.protocol import ToolOutput
     global INSTANCE
     out = io.StringIO()
-    INSTANCE = str(a["id"]) if "id" in a else None
+    result = None
+    def execute(command: Command) -> str:
+        nonlocal result
+        result = request(command, timeout=command.timeout_seconds)
+        return result.text()
+    if name not in TOOLS:
+        raise NoemuError("unsupported", f"unknown tool {name}")
+    previous = INSTANCE
+    INSTANCE = a.get("id")
     try:
+        if INSTANCE is not None:
+            instance_path(INSTANCE)
         with contextlib.redirect_stdout(out):
             if name == "spawn":
                 spawn()
                 INSTANCE = out.getvalue().split()[0]
-                print("\n" + send("screen"))
+                print("\n" + execute(Command("screen")))
             elif name == "build":
                 build([x for k in ("module", "task") if a.get(k) for x in (f"--{k}", a[k])])
             elif name == "pool":
-                pool(int(a["n"]))
+                if pool(int(a["n"])):
+                    raise NoemuError("startup_failed", out.getvalue())
             elif name in ("list", "sleep", "wake", "destroy"):
                 fleet(name, [str(a["id"])] if "id" in a else [])
             elif name == "shot":
                 path = (target() / "mcp-shot.png").resolve()
-                send(f"shot {path}")
-                return [{"type": "image", "data": base64.b64encode(path.read_bytes()).decode(), "mimeType": "image/png"}]
+                execute(Command("shot", (str(path),)))
+                if path.stat().st_size > MAX_MESSAGE_BYTES * 3 // 4 - 8192:
+                    raise NoemuError("message_too_large", "screenshot exceeds MCP response budget; use the CLI artifact path")
+                return ToolOutput([{"type": "image", "data": base64.b64encode(path.read_bytes()).decode(), "mimeType": "image/png"}], result)
             else:
-                line = {"tap": f"tap {a.get('target', '')}", "type": f"type {a.get('target', '')}\t{a.get('text', '')}",
-                        "scroll": f"scroll {a.get('direction', 'down')}", "wait": f"wait {a.get('ms', 1000)}",
-                        "open": f"open {a.get('target', '')}", "network": f"network {a.get('state', '')}"
-                        + (f" {a.get('delay_ms', 0)}" if a.get("state") == "slow" else "")}.get(name, name)
-                print(send(line))
+                if name == "network" and ((a.get("state") == "slow") != ("delay_ms" in a)):
+                    raise NoemuError("invalid_argument", "delay_ms is required only for network slow")
+                arguments = {"tap": (a.get("target", ""),), "type": (a.get("target", ""), a.get("text", "")),
+                             "scroll": (a.get("direction", "down"),) + ((a["target"],) if "target" in a else ()),
+                             "rotate": (str(a["count"]),) if "count" in a else (),
+                             "crawl": (str(a.get("steps", 200)), str(a.get("minutes", 10))),
+                             "wait": (str(a.get("ms", 1000)),),
+                             "open": (a.get("target", ""),),
+                             "network": (a.get("state", ""),) + ((str(a.get("delay_ms", 0)),) if a.get("state") == "slow" else ())}
+                print(execute(Command(name, arguments.get(name, ()))))
     except SystemExit as e:
         raise RuntimeError(str(e.code) if e.code not in (None, 0) else out.getvalue()) from None
-    return [{"type": "text", "text": out.getvalue().strip()}]
+    finally:
+        INSTANCE = previous
+    return ToolOutput([{"type": "text", "text": out.getvalue().strip()}], result)
 
 
 def mcp() -> int:
-    """A stdio MCP server (JSON-RPC 2.0, one message per line) exposing the fleet and session commands as tools."""
-    for raw in sys.stdin:
-        if not raw.strip():
-            continue
-        msg = json.loads(raw)
-        if "id" not in msg:  # a notification (notifications/initialized): no answer
-            continue
-        method, params = msg.get("method"), msg.get("params") or {}
-        try:
-            if method == "initialize":
-                result = {"protocolVersion": params.get("protocolVersion", "2025-06-18"),
-                          "capabilities": {"tools": {}}, "serverInfo": {"name": "noemu", "version": "0.2"}}
-            elif method == "tools/list":
-                result = {"tools": [{"name": n, "description": d, "inputSchema": {
-                    "type": "object", "properties": props, "required": req}} for n, (d, props, req) in TOOLS.items()]}
-            elif method == "tools/call":
-                try:
-                    result = {"content": run_tool(params["name"], params.get("arguments") or {})}
-                except (RuntimeError, OSError, KeyError, ValueError) as e:
-                    text = str(e) if str(e).startswith("noemu:") else f"noemu: {e}"
-                    result = {"content": [{"type": "text", "text": text}], "isError": True}
-            elif method == "ping":
-                result = {}
-            else:
-                raise LookupError(method)
-            reply = {"jsonrpc": "2.0", "id": msg["id"], "result": result}
-        except LookupError as e:
-            reply = {"jsonrpc": "2.0", "id": msg["id"], "error": {"code": -32601, "message": f"unknown method {e}"}}
-        sys.stdout.write(json.dumps(reply) + "\n")
-        sys.stdout.flush()
-    return 0
+    from noemu.mcp_server import run
+    return run()
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -514,6 +545,8 @@ def main(argv: list[str] | None = None) -> int:
     INSTANCE = os.environ.get("NOEMU_ID") or None
     if len(argv) >= 2 and argv[0] == "--id":
         INSTANCE, argv = argv[1], argv[2:]
+    if INSTANCE is not None:
+        instance_path(INSTANCE)
     if not argv or argv[0] in ("-h", "--help", "help"):
         print(__doc__)
         return 0
@@ -521,6 +554,8 @@ def main(argv: list[str] | None = None) -> int:
     if rest[:1] in (["-h"], ["--help"]):  # `noemu build --help` must not start a build
         print(__doc__)
         return 0
+    if cmd in ("mcp", "stop") and rest:
+        raise NoemuError("invalid_argument", f"{cmd} takes no arguments")
     if cmd == "mcp":
         return mcp()
     if cmd == "doctor":
@@ -531,14 +566,12 @@ def main(argv: list[str] | None = None) -> int:
         return stop()
     if cmd in ("build", "pool", "spawn", "_refill", "list", "sleep", "wake", "destroy"):
         return fleet(cmd, rest)
-    if cmd in ("screen", "tap", "type", "scroll", "back", "rotate", "kill", "leaks", "wait", "open", "network", "shot", "logs",
+    if cmd in ("screen", "tap", "type", "scroll", "back", "rotate", "restore-activity", "kill", "leaks", "wait", "open", "network", "shot", "logs",
                "crawl"):
-        line = " ".join([cmd] + rest)
-        if cmd == "type" and len(rest) >= 2:
-            line = f"type {rest[0]}\t{' '.join(rest[1:])}"
         if cmd == "shot" and rest:
-            line = f"shot {Path(rest[0]).resolve()}"
-        print(send(line, timeout=3600 if cmd == "crawl" else 900 if cmd == "leaks" else 120))
+            rest = [str(Path(rest[0]).resolve()), *rest[1:]]
+        command = Command(cmd, tuple(rest))
+        print(send(command, timeout=command.timeout_seconds))
         return 0
     print(__doc__)
     return 2
@@ -551,6 +584,9 @@ def entry() -> int:
     except BrokenPipeError:  # the reader went away (`noemu screen | head`): not an error
         os.dup2(os.open(os.devnull, os.O_WRONLY), sys.stdout.fileno())
         return 0
+    except (OSError, ValueError, RuntimeError) as error:
+        print(str(error) if str(error).startswith("noemu:") else f"noemu: {error}", file=sys.stderr)
+        return 1
 
 
 if __name__ == "__main__":

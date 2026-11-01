@@ -9,7 +9,7 @@ description = "Run your Android app with no emulator, drive it from the terminal
 readme = "README.md"
 requires-python = ">=3.10"
 license = { text = "MIT" }
-dependencies = []
+dependencies = ["psutil>=6,<8", "mcp>=1.29,<2"]
 keywords = ["android", "robolectric", "jetpack-compose", "testing", "ai-agents", "emulator"]
 
 [project.scripts]

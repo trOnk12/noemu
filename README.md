@@ -1,280 +1,242 @@
-# noemu
+# NoEmu
 
-> **Status: shelved (2026-10-25).** Robolectric's own [Simulator](https://robolectric.org/simulator/) already runs
-> an app interactively on the JVM, and the crawl's check is known from research. What noemu adds (headless text
-> control for agents, a lifecycle crawl inside your build) did not prove enough on its own. Why, what it found, and
-> what we learnt: [CONCLUSION.md](CONCLUSION.md). It still works; the known gaps are listed there and under Limits.
->
-> **Since 2026-10-26: a fleet for parallel agents.** A developer who caps his coding agents at two emulators asked for
-> app instances an agent can spawn, put to sleep and destroy fast. [Below](#many-instances-for-parallel-agents-fleet).
+**An Android experimentation platform for coding agents.**
 
-**Run your Android app and drive it, with no emulator.** For coding agents in sandboxes that can't run one, and for
-anyone who wants to see a screen in seconds instead of booting a device. `noemu crawl` then taps through the app on its
-own and reports crashes and what a rotation loses.
+NoEmu runs Android application code on the JVM with Robolectric and exposes it
+through a Python CLI and an MCP server. Agents can inspect Views and Compose
+semantics, interact with an app, exercise lifecycle changes, and collect evidence
+without booting an emulator or requiring KVM.
 
-![noemu finding bugs in Google's Compose samples and Fossify apps](docs/demo.gif)
+The goal is to make Android behavior as easy to explore, reproduce, and compare
+as source code. A successful JVM operation establishes what happened in that
+simulation. Verification on Android is a separate, planned capability.
 
-```text
-$ noemu start
-noemu: app running (31s)
+> **Experimental development branch — [draft PR #1](https://github.com/trOnk12/noemu/pull/1).**
+> Milestone A is incomplete. Python regressions pass locally; Kotlin compilation
+> and live-driver checks remain unverified, and the installed MCP stdio check
+> timed out in the local test environment. The shared supervisor, immutable builds,
+> replay engine, and Android verification adapter are planned. Read the
+> [validation record](docs/VALIDATION.md) before relying on verification results.
 
-activity MainActivity
-[2] button Filters  @108,252  (tap)
-[10] button Cupcake A tag line  @327,879  (tap)
-[16] button Chips  @252,1721  (tap)
-[27] button HOME  @246,2589  (tap)
-[29] button MY CART  @861,2589  (tap)
-screenshot .gradle/noemu/screen.png
+## Implemented interfaces
 
-$ noemu tap "MY CART"
-tapped "MY CART"
-activity MainActivity
-[1] text Order (3 items)  @303,252
-[3] button Gingerbread A tag line $4.99 Qty 2  @616,535  (tap)
-[9] text Subtotal  @168,1729
-[10] text $54.44  @1085,1729
-...
-```
+The following interfaces exist in this branch. Their presence does not establish
+Android compatibility; the fixture and platform checks are tracked separately.
 
-That is Google's Jetsnack sample, unmodified, running in a cloud container with no KVM.
+- Launch an Android source project on the JVM using its Gradle build.
+- Inspect visible elements from Views and Compose semantics.
+- Tap a unique label or an observed element; enter text, including multiple lines.
+- Navigate back, open activities or app links, rotate, and restore activity state.
+- Inspect screenshots and logs; run the experimental lifecycle crawler.
+- Build once and start separate JVM instances with the existing fleet commands.
+- Drive the same commands through the official Python MCP SDK.
 
-## How
+The Android target of a Kotlin Multiplatform project can be used when its app
+module applies `com.android.application`. Other KMP targets are outside scope.
+Linux and macOS are the intended hosts. Local validation coverage is recorded
+separately from platform support goals.
 
-Your app runs on the JVM under [Robolectric](https://robolectric.org/), inside a test that noemu's Gradle init script
-adds to the app module **for that build only**: nothing in your project changes, nothing to commit. The app starts the
-way Android starts it (content providers, then `Application.onCreate`, then the launcher activity), with your real
-dependency graph (Hilt, Room, WorkManager, DataStore), and stays running while you send it commands.
+## Requirements
 
-`screen` lists what's on screen, numbered, from the Compose semantics tree and the View hierarchy (the same things
-accessibility services and UI tests read), in the window that takes the touches: an open dialog or menu, else the
-activity. Each command returns the new screen and saves a screenshot.
+- Python 3.10 or newer.
+- JDK 21 for the driver, which currently uses Robolectric 4.16 and Android API 36.
+- The Android SDK and Gradle wrapper required by your app's source project.
+- Access to the project's Maven and Gradle dependencies for the initial build.
 
-## Crawl for crashes and lost state
-
-`noemu crawl 100` taps through the app on its own, typing into fields and submitting them. On every new screen, and
-after every action that changes one, it rotates the device there and back: the activity is rebuilt from its saved
-state, with the other orientation's layouts on the way. Once per screen it also kills the app in the background and
-reopens it, as Android does to apps you leave: ViewModels gone, only saved state left. It reports:
-
-- **problems**: crashes (where thrown, and the taps that led there), text it typed that a rotation lost, views
-  stacked again on each rotation, and screens leaked in memory, with the chain of references that holds them (found
-  by LeakCanary's analyzer);
-- **worth a look**: anything else a rotation changed, such as a search bar closing, which may be fine.
-
-```text
-$ noemu crawl 100        # Fossify Calendar, the release before its fix for issue #644
-crawled 30 actions over 30 distinct screens; 0 distinct crash(es), 1 rotation problem(s)
-
-MainActivity: 52 elements before rotating there and back, 144 after; shown more than once now: "button Go to
-previous month", "button October", "button Go to next month"
-  after: rotate > rotate
-```
-
-Users reported that one as [#644](https://github.com/FossifyOrg/Calendar/issues/644), "App crashes after rotating
-several times": each rotation stacked another copy of the calendar until the app died (the crawl slowed down too, and
-stopped at its 10-minute budget). The release with the fix shows no stacking. Failures of the JVM stand-in itself (a
-GPU-only shader, say) are listed apart, as not app bugs.
-
-[What the crawl found on real apps](bench/CRAWL_EVIDENCE.md): in Google's own Compose samples, a crash in Jetchat
-(send the same message twice) and a search query that Jetsnack, Reply and Jetcaster each lose on rotation; five
-historical bugs from Fossify Calendar, File Manager, Calculator and Notes, none reported on the fixed code; no crashes on
-today's Fossify apps.
+An APK alone is insufficient: NoEmu runs the app's compiled JVM code and resources.
+Android native libraries require compatible host libraries. Google Play services,
+hardware, graphics, and operating-system behavior may be unavailable or differ.
 
 ## Install
 
-```bash
-pipx install git+https://github.com/trOnk12/noemu
+To evaluate the draft implementation described here, select its branch explicitly.
+The default branch does not yet contain these changes.
+
+```sh
+pipx install 'git+https://github.com/trOnk12/noemu.git@codex/noemu-foundation'
 ```
 
-It needs Python 3.10+, JDK 17+ (plus a JDK 21 installed when the build runs on 17) and what your project already builds with (Android SDK, Gradle wrapper). Robolectric
-comes in through Gradle, for the run only.
+For development, install the checked-out revision:
 
-## Use
+```sh
+git clone --branch codex/noemu-foundation https://github.com/trOnk12/noemu.git
+cd noemu
+python -m venv .venv
+. .venv/bin/activate
+python -m pip install -e .
+```
 
-```bash
-cd your-android-project
-noemu start [--module :app] [--task testDebugUnitTest] [--activity com.example.EditorActivity [--data file:///tmp/a.txt]]
+The CLI, Kotlin driver, Gradle init script, and runtime service registrations ship
+in the Python package. After updating NoEmu, rebuild and relaunch existing app
+instances: the versioned JSON transport is incompatible with the old text driver.
+
+## Quick start
+
+From the Android project root:
+
+```sh
+noemu doctor --module :app
+noemu start --module :app
 noemu screen
-noemu tap 16              # by number
-noemu tap "Sign in"       # or by label
-noemu type 2 "hello@example.com"
-noemu scroll down | noemu back | noemu rotate | noemu kill | noemu leaks | noemu wait 2000
-noemu open .SettingsActivity | noemu open myapp://chat/42    # an activity, or a deep link (ACTION_VIEW)
-noemu network off | noemu network on   # airplane mode: open connections closed, new ones refused, the app told
-noemu network slow 300                 # 300 ms more each way on every connection (0: none)
-noemu shot out.png | noemu logs
-noemu crawl 100 [MINUTES]   # every decision it takes goes to .gradle/noemu/crawl.log
+noemu tap "Sign in"
+noemu type "Email" "agent@example.com"
+noemu rotate 2
+noemu shot /tmp/noemu-screen.png
+noemu logs
 noemu stop
 ```
 
-## Many instances for parallel agents (fleet)
+For product flavors, supply the actual unit test task, for example
+`--task testDemoDebugUnitTest`. Use `--activity com.example.EditorActivity` to
+select an activity and `--data URI` to supply intent data.
 
-First, `noemu doctor --module :app [--task test<Flavor>DebugUnitTest]` reads the project (it runs nothing) and says what
-will stand in the way: JDK 21, the Android SDK, the app module, flavors, JUnit 5, Android-only native libraries (with
-the JVM build to add, where one exists), disk space.
+The init script adds NoEmu's test sources and dependencies to the selected module
+for that Gradle invocation. Gradle still writes its normal build outputs.
 
-Build once; then each instance is one JVM started from the recorded command, with no Gradle and no emulator.
-Instances wait in a pool, asleep (no CPU), so an agent's `spawn` only wakes one.
+### Targeting and failures
 
-```bash
-noemu build --module :app          # after every code change (an incremental build here: about 20 s)
-noemu pool 4                       # start 4 and put them to sleep (each pays the full start once)
-noemu spawn                        # -> "ID PORT": a pooled instance woken, or a fresh one if the pool is empty
-NOEMU_ID=ID noemu screen           # every command above works on an instance (or: noemu --id ID tap "Sign in")
-noemu sleep ID | noemu wake ID     # freeze / resume its JVM; the app's state stays
-noemu destroy ID                   # or: noemu destroy all
+Labels must match uniquely, ignoring case. Duplicate matches fail. Disabled
+controls fail before an action is invoked. Numeric indices refer to the last
+observation and are checked against the current element. The JSON driver protocol
+also exposes observation-scoped references, full labels, state, bounds, and
+available resource-ID or Compose test-tag selectors.
+
+Request a fresh screen after the UI changes. A stale reference is an error; NoEmu
+does not translate a failed selector into guessed coordinates. Semantic actions
+are not a substitute for Android hit testing or accessibility conformance.
+
+Commands that fail return a nonzero CLI status or an MCP `isError` result. A
+timeout means the outcome may be partial: inspect the instance before retrying a
+mutation. See [the transport contract](docs/PROTOCOL.md).
+
+### Activity state and network controls
+
+```sh
+noemu restore-activity
+noemu network off
+noemu network on
+noemu network slow 300
+```
+
+`restore-activity` rebuilds the activity from parcelled saved state **inside the
+same JVM**. Application statics and singletons survive. The legacy `kill` command
+is an alias for this operation; it does not simulate genuine process death or
+Android task restoration.
+
+Network controls operate through the JVM proxy and simulated connectivity state.
+Clients that bypass the proxy, including some raw-socket, NIO, and UDP clients,
+are not covered. Permissions are currently granted automatically; permission
+denial experiments are not supported.
+
+## Experimental fleet
+
+```sh
+noemu build --module :app
+noemu pool 1
+noemu spawn                       # prints: ID PORT
+NOEMU_ID=0 noemu screen            # use the returned ID
+noemu --id 0 tap "Sign in"
+noemu sleep 0
+noemu wake 0
+noemu destroy 0
 noemu list
 ```
 
-`spawn` refills the pool in the background. `build` drops pooled instances of the previous build, so an agent never
-gets old code; instances already handed out keep running until destroyed. Each instance has its own app data
-(Robolectric's temporary directory), removed by `destroy`.
+`spawn --no-refill` disables background pool replenishment. `destroy all` destroys
+verified live instances in the current project's fleet. Destroy waits for process
+exit before removing that instance's allocated temporary directory. Lifecycle
+commands require recorded PID, creation time, and owner identity. Old directories
+containing only a PID are deliberately not trusted for signaling.
 
-Instances keep real time. Robolectric boots every instance at the same uptime and Android's own code reads it as the
-time of day, so `DateUtils` printed "a minute ago" as a date, notifications were stamped 1970, and IDs an app takes
-from `SystemClock` repeated across instances (two clients of a messaging app claiming the same message id). Each
-instance's clock now starts at the real time (plus a random fraction of a millisecond, so instances started together
-still differ), and before each command it moves on by the real time that passed, as a phone's clock does while the
-agent thinks or the instance sleeps; timers due by then run once. A command to an instance that is asleep fails at
-once and says what to run.
+The current fleet stores metadata under the project’s `.gradle/` directory. It
+has **no shared resource scheduler or immutable build snapshot**. Do not treat it
+as the isolation and cross-worktree lease system described in milestone B.
+Sleeping JVMs retain memory. A changed build can still invalidate paths used by
+older instances; concurrent revision comparison must wait for immutable generations.
+Memory output is resident memory in MiB for the verified process. An unavailable
+measurement is shown as `memory unknown`, never as zero usage.
 
-Settings, per instance at start: `NOEMU_SETTLE_MS` (the longest an
-action waits for the screen to settle, default 4000; numbers that keep changing, like a clock or a timer, don't count
-as unsettled),
-`NOEMU_SHOTS=0` (no screenshot after every action), `NOEMU_IDLE_MIN` (an instance no agent has used for that many
-minutes ends itself; time asleep in the pool doesn't count), `NOEMU_XMX` (heap, default 1g), `NOEMU_JVM_ARGS` (default
-`-XX:+UseSerialGC -XX:TieredStopAtLevel=1`, which made instances about 17% smaller and a second faster to start).
+## MCP integration
 
-Measured on a Compose Multiplatform app (`androidTarget`) in a 4-core, 16 GB container with no KVM, while other
-jobs loaded it ([details](bench/FLEET.md)):
+Launch `noemu mcp` with the Android project root as its working directory. A
+client that supports a working-directory field can use:
 
-| | |
+```json
+{
+  "mcpServers": {
+    "noemu": {
+      "command": "noemu",
+      "args": ["mcp"],
+      "cwd": "/absolute/path/to/android-project"
+    }
+  }
+}
+```
+
+Working-directory configuration varies by client. The server uses stdio and the
+official MCP SDK. Tool inputs are schema-validated; malformed messages do not
+terminate the session. Tool calls are serialized while the legacy orchestration
+uses process-global instance selection.
+
+Driver operations return the same versioned result as `structuredContent`, alongside
+readable text (or an image for `shot`). Agents can inspect observation references,
+selectors, identity, timing, artifacts, and limitations without parsing console text.
+Failed operations retain their structured result and set `isError`.
+`scroll` accepts a `target`; `rotate` accepts `count`; `crawl` accepts `steps` and
+`minutes`. `restore-activity` preserves application statics and singletons.
+For `network`, `delay_ms` is required with `state: "slow"` and rejected otherwise.
+
+## Configuration
+
+| Variable | Purpose |
 | --- | --- |
-| Spawn from the pool (wake + readable screen) | about 0.4 s |
-| Sleep / wake (state kept) | about 50 ms / 0.4 s |
-| Destroy | under 0.1 s |
-| Full start (refilling the pool, or `spawn` with an empty pool) | about 10 s (Android ready 6 s, app 9 s, settled 10 s); slower under load |
-| Memory per instance | about 390 MB; 12 started at once in 56 s and used 4.6 GB together |
-| Tap answered (default settings, `NOEMU_SHOTS=0`) | 0.6-0.8 s, also on a screen with a running clock |
-| Several instances on one real server | three ran the app's 60-message round trip against one local relay; one put to sleep for 30 s mid-transfer finished after waking |
+| `NOEMU_ID` | Select a fleet instance; `--id` takes precedence. |
+| `NOEMU_SHOTS=0` | Disable automatic screenshots; explicit `shot` still works. |
+| `NOEMU_SETTLE_MS` | Limit waiting for the UI to settle; default 4000 ms. |
+| `NOEMU_XMX` | Heap size for a fleet JVM; default `1g`. |
+| `NOEMU_JVM_ARGS` | Additional fleet JVM options. |
+| `NOEMU_IDLE_MIN` | End a fleet instance after its idle interval. |
+| `NOEMU_GRADLE_ARGS` | Additional arguments for the Gradle invocation. |
+| `NOEMU_DEPS` | Comma-separated test-runtime dependencies, such as host-native alternatives. |
 
-**Offline, per instance.** `network off` is airplane mode for one instance: the app's connections run through a
-SOCKS proxy inside its JVM (installed as the default `ProxySelector` before the app is created, which OkHttp and
-`HttpURLConnection` follow), so `off` closes the ones that are open, a websocket among them, refuses new ones, and
-tells the app (`ConnectivityManager` reports no network; registered `NetworkCallback`s get `onLost`, then
-`onAvailable` on `network on`). Onward connections go where the JVM's own proxy settings say, a company proxy too.
-Checked on the demo against a real relay ([details](bench/FLEET.md#offline-per-instance-2026-10-27)): a run while
-off fails, the same run succeeds after `on`, and a 20 s long poll is cut the moment the network goes off. Not cut:
-clients that bypass the `ProxySelector` or ignore SOCKS proxies (raw sockets, NIO channels such as Ktor's CIO
-engine, `java.net.http`) and UDP (calls). `network slow MS` delays every chunk by MS in each direction
-(the demo's 60-message round trip: 7 s, 19 s at 100 ms). The
-app sees `SocketException: SOCKS: Network unreachable`, where a phone usually gives `UnknownHostException`.
+## Development and verification
 
-**Kotlin Multiplatform**: point `--module` at the module that applies `com.android.application` (often `:composeApp`
-or `:androidApp`). Modules testing on the JUnit Platform (`kotlin.test`) are supported. noemu runs the Android
-target only: iOS needs a simulator.
+Start with the [review and continuation guide](docs/REVIEW.md) for the current
+scope, exact checks, and open review questions.
 
-**Apps that load native libraries.** Android `.so` files can't load on the JVM. When a library also ships a JVM
-artifact with the same classes and host libraries, add it with `NOEMU_DEPS` (comma-separated coordinates).
-
-**Wire (wire-android with Kalium)** — prepared from Wire's source, not yet run (this environment couldn't build it):
-
-```bash
-git clone --recurse-submodules https://github.com/wireapp/wire-android && cd wire-android   # JDK 21
-NOEMU_DEPS=com.wire:core-crypto-jvm:10.5.4 noemu build --module :app --task testDevDebugUnitTest
+```sh
+python -m pip install -e . build
+python -m unittest discover -s tests -t . -v
+python -m build
 ```
 
-- `core-crypto-jvm` has the same 466 classes as `core-crypto-android` (bar 2 Android-only helpers) plus
-  `linux-x86-64` and `darwin-aarch64` libraries, so Kalium's MLS and Proteus can run. Match its version to
-  `core-crypto` in `kalium/gradle/libs.versions.toml`.
-- A debug build on Android 11+ (noemu runs SDK 36) doesn't encrypt Kalium's databases (`shouldEncryptData` in
-  `KaliumConfigsModule`), so SQLCipher's Android library is never loaded.
-- The `dev` flavor talks to Wire's staging backend; log in with a test account.
-- Calls (AVS) won't work: AVS ships Android libraries only.
+The [Views and Compose fixtures](fixtures/README.md) contain both correct and
+intentionally broken behaviors. Their integration runner requires the Android
+build toolchain and fails when prerequisites are missing. CI defines Python checks
+on Linux/macOS, a clean wheel installation, Kotlin protocol checks, and live driver
+checks for both fixtures. A configured job is not evidence of a passing run.
 
-**As an MCP server.** `noemu mcp` serves the same commands as tools (`spawn`, `screen`, `tap`, `type`, `scroll`,
-`back`, `rotate`, `wait`, `open` (an activity or a deep link), `network` (on/off/slow), `shot` (an image), `logs`, `sleep`, `wake`, `destroy`, `list`, `pool`, `build`) over stdio,
-so an agent calls them directly instead of composing shell commands. Run it from the project root. For Claude Code:
+Historical experiments live in [bench/](bench/). Their timings and findings apply
+to those recorded revisions and conditions. They do not establish current p95
+performance, Android conformance, or the roadmap's 1,000-cycle reliability target.
 
-```bash
-cd your-android-project
-claude mcp add noemu -- noemu mcp     # or in .mcp.json: {"mcpServers": {"noemu": {"command": "noemu", "args": ["mcp"]}}}
-```
+## Architecture and direction
 
-Checked on the KMP demo through a JSON-RPC client: `spawn` returned an instance and its first screen, `tap` answered in
-0.64 s, `shot` returned a PNG, a wrong id came back as a tool error, `destroy` in 0.05 s.
+Python owns orchestration; Kotlin executes the app on Robolectric. The planned
+supervisor will manage immutable builds, exclusive leases, resource budgets, and
+experiment records. Replays will carry explicit assertions, capabilities,
+limitations, and backend identity. Optional Android verification will replay a
+supported subset against an explicitly chosen ADB target through Maestro.
 
-For your agents' instructions (AGENTS.md / CLAUDE.md):
+Robolectric's upstream Simulator also has headless execution and remote-control
+hooks. NoEmu will evaluate it against the same corpus before considering a backend
+change; release availability and compatibility still require verification. The
+product's value is the complete experiment and evidence workflow.
 
-```markdown
-## Running the app without an emulator (noemu)
-- After changing code, `noemu build --module :composeApp`.
-- `noemu spawn` prints `ID PORT`; then `NOEMU_ID=ID noemu screen`, `... tap "Label"`, `... type 2 "text"`,
-  `... back`, `... rotate`. Read the numbered screen text; `... shot out.png` only when you need pixels.
-- When done, `noemu destroy ID`.
-- Use an emulator only for what noemu can't run: Google Play services, camera, WebView, real GPU.
-```
+Contributions should include a minimal reproduction, an executable acceptance
+check, and the runtime/Android scope of any compatibility claim. Keep changes small;
+advance the roadmap only after the preceding exit gate passes.
 
-## Tested on
+## License
 
-| App | Stack | Start |
-| --- | --- | --- |
-| Jetsnack (android/compose-samples) | Compose | 31 s |
-| JetNews (android/compose-samples) | Compose | 75 s first build |
-| JetLagged (android/compose-samples) | Compose, AGSL shaders (`RuntimeShader`) | 13 s |
-| Now in Android | Compose, Hilt, Room, WorkManager, Firebase, dialogs, Gradle isolated projects | 93 s first build |
-| Fossify Notes | Views (XML), splash + several activities, Room, dialogs | 36 s |
-
-## Does it make agents better?
-
-On six Jetsnack tasks (features and bug reports), an agent with noemu and one without both got 6/6
-([study](bench/AGENT_STUDY.md)). noemu didn't make the code better. It let the agent check its work in the running app
-and say so ("after I tapped 'Clear cart', the header read 'Order (0 items)'"), where the other could only write "I haven't
-seen it on screen".
-
-## Check it yourself
-
-`python bench/reproduce.py WORKDIR` clones the apps at pinned commits and replays, with fixed noemu commands (not a
-crawl), 6 of the bugs above, 1 leak planted for the test and 3 fixed versions that must stay clean: 10 of 10 held ([results, and a second reviewer's reading of the upstream code](bench/REPRODUCED.md)).
-
-## Next to the usual tools
-
-[Measured in a cloud container](bench/COMPARISON.md): the Android Emulator refuses to start there (no KVM), so every
-device-based tool is out; Android Lint reports 123 and 43 warnings on Jetchat and Jetsnack and none about the bugs
-noemu found; an agent reading noemu's screen text spends 3.5-6x fewer tokens per look than with a screenshot.
-
-## What else exists
-
-- **Robolectric's [Simulator](https://robolectric.org/simulator/)** (since Robolectric 4.15, 2025, "highly
-  experimental") runs an app's main activity interactively on the JVM, in a desktop window, from
-  `./gradlew simulate<variant>`. noemu differs in what is around that: no display (numbered screen text for agents),
-  any activity, and the rotate, kill, leak and crawl commands.
-- **Agent tools that drive Android** ([mobile-mcp](https://github.com/mobile-next/mobile-mcp),
-  [android-mcp](https://github.com/remymazmanian/android-mcp), Google's Android CLI for agents, 2026) need a device or
-  an emulator. [compose-ai-tools](https://github.com/yschimke/compose-ai-tools) drives Compose `@Preview`s through
-  Robolectric for agents.
-- **Explorers that check rotation and restarts**: ALARic (ISSTA'18), Quantum (ICST'14), Thor (ISSTA'15) and
-  [DLD](https://arxiv.org/abs/2010.05584) (ISSTA'20) use the same oracle as noemu's crawl (the screen before and after),
-  on devices or emulators; [RotDroid](https://arxiv.org/abs/2608.25425) uses a vision model;
-  [iFixDataloss](https://arxiv.org/abs/2209.08719) finds and patches data loss. DDLDroid (ISSTA'23), KREfinder and
-  LiveDroid find such bugs statically, with no device at all.
-- **Robolectric and [Roborazzi](https://github.com/takahirom/roborazzi)** run app code on the JVM in tests you write;
-  `StateRestorationTester` checks `rememberSaveable` per composable.
-
-## Limits
-
-- It is Robolectric, not a device: no GPU (shaders are drawn on the CPU), no camera, no real sensors; rendering is
-  close, not pixel-identical.
-- Needs a JDK 17 or newer, plus a JDK 21 installed when the build runs on 17 (Gradle finds it).
-- WorkManager work that waits on constraints doesn't run on its own yet.
-- It grants the app's permissions and "all files access" up front, as a user would at the first prompt; a crawl with
-  `--data` can save to that file.
-- `kill` rebuilds the top activity from its saved state; the Application, singletons, statics and the activities
-  below survive, so it misses the most common real process-death bugs.
-- A crash with no frame from the app's package on the stack (a Compose layout error, a `Parcel` failure in `kill`) can
-  be filed under JVM limits instead of crashes, and taps can reach disabled views (found in review, not fixed).
-- One screen size per session (411x891 dp).
-- Fleet: instances run the code of the last `noemu build`; sleep and wake use SIGSTOP/SIGCONT (Linux and macOS, not
-  Windows); `list` shows memory on Linux only; an asleep instance keeps its memory. Each instance unpacks Robolectric's
-  native runtime (about 200 MB) into the temporary directory; `destroy` removes it, but an instance that dies another
-  way (crash, `kill -9`) leaves it behind.
+[MIT](LICENSE).

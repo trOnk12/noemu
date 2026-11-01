@@ -31,18 +31,16 @@ import org.robolectric.annotation.RealObject
 import org.robolectric.shadows.ShadowApplication
 import org.robolectric.shadows.ShadowLog
 import org.robolectric.shadows.ShadowLooper
-import java.io.BufferedReader
 import java.io.File
-import java.io.InputStreamReader
-import java.io.PrintWriter
 import java.net.InetAddress
 import java.net.ServerSocket
 import java.time.Duration
+import org.json.JSONObject
+import org.json.JSONArray
 
 /**
- * Runs the app on the JVM (Robolectric) and serves one command per line on localhost:
- *   screen | tap N|TEXT | type N|TEXT <text> | scroll up|down [N] | back | wait MS | shot FILE | logs | quit
- * Each reply is text, ending with a line "." .
+ * Runs the app on the JVM and serves bounded, versioned JSON commands on loopback.
+ * Commands are serialized on the test thread; errors are explicit protocol results.
  */
 @RunWith(AndroidJUnit4::class)
 @GraphicsMode(GraphicsMode.Mode.NATIVE)
@@ -58,6 +56,16 @@ class NoemuDriver {
     private lateinit var launch: Intent
     private var elements: List<Element> = emptyList()
     private val out = File(System.getProperty("noemu.out") ?: ".gradle/noemu").apply { mkdirs() }
+
+    private var observation: JSONObject? = null
+    private var observationId: String? = null
+    private val artifacts = mutableListOf<String>()
+    private var commandDeadline = Long.MAX_VALUE
+
+    private fun checkDeadline() {
+        if (System.nanoTime() >= commandDeadline)
+            throw DriverFailure("deadline_exceeded", "command deadline exceeded; outcome may be partial", "inconclusive")
+    }
 
     @Test fun serve() {
         val jvmStart = java.lang.management.ManagementFactory.getRuntimeMXBean().startTime
@@ -110,49 +118,80 @@ class NoemuDriver {
             }
             idleMs = 0L
             tick = System.currentTimeMillis()
-            val reader = BufferedReader(InputStreamReader(socket.getInputStream()))
-            val writer = PrintWriter(socket.getOutputStream(), true)
-            val line = reader.readLine() ?: continue
-            if (line.trim() == "quit") {
-                writer.println("bye\n."); socket.close(); break
+            var quitting = false
+            socket.use {
+                var requestId: String? = null
+                var reply = ""
+                var failure: DriverFailure? = null
+                val started = System.nanoTime()
+                observation = null
+                artifacts.clear()
+                try {
+                    val raw = Protocol.read(socket)
+                    requestId = raw.opt("request_id") as? String
+                    val command = Protocol.decode(raw)
+                    commandDeadline = System.nanoTime() + command.timeoutMs * 1_000_000
+                    if (command.name == "quit") {
+                        reply = "bye"
+                        quitting = true
+                    } else {
+                        catchUp()
+                        synchronized(backgroundCrashes) { backgroundCrashes.firstOrNull() }?.let { throw it }
+                        reply = handle(command)
+                        synchronized(backgroundCrashes) { backgroundCrashes.firstOrNull() }?.let { throw it }
+                        checkDeadline()
+                    }
+                } catch (e: Throwable) {
+                    if (e is VirtualMachineError || e is ThreadDeath) throw e
+                    System.err.println(e.stackTraceToString())
+                    failure = when (e) {
+                        is DriverFailure -> e
+                        is org.json.JSONException, is java.nio.charset.CharacterCodingException ->
+                            DriverFailure("protocol_error", e.message ?: "invalid JSON")
+                        is java.net.SocketTimeoutException -> DriverFailure("deadline_exceeded", "request read timed out", "inconclusive")
+                        else -> DriverFailure("execution_error", "${e.javaClass.name}: ${e.message}")
+                    }
+                    reply = failure.message ?: failure.code
+                } finally {
+                    commandDeadline = Long.MAX_VALUE
+                }
+                val response = Protocol.response(requestId, System.getProperty("noemu.instance"),
+                    File(out, "build").takeIf { it.exists() }?.readText(),
+                    (System.nanoTime() - started) / 1_000_000, reply, observation, artifacts, failure)
+                try { Protocol.write(socket, response) }
+                catch (e: java.io.IOException) { System.err.println("noemu: client disconnected: $e") }
             }
-            catchUp()
-            var reply = runCatching { handle(line.trim()) }.getOrElse { System.err.println(it.stackTraceToString()); "error: $it" }
-            // A crash on another thread or in a posted task, which the command itself didn't see.
-            synchronized(backgroundCrashes) { backgroundCrashes.toList().also { backgroundCrashes.clear() } }
-                .forEach { e -> reply = "the app crashed: ${generateSequence(e) { it.cause }.last()}\n" + reply }
-            writer.println(reply); writer.println("."); socket.close()
+            if (quitting) break
             tick = System.currentTimeMillis()
         }
         server.close()
     }
 
-    private fun handle(line: String): String {
-        val (cmd, rest) = line.split(" ", limit = 2).let { it[0] to it.getOrElse(1) { "" } }
-        return when (cmd) {
+    private fun handle(command: DriverCommand): String {
+        val args = command.args
+        return when (command.name) {
             "screen" -> screen()
-            "tap" -> act(rest) { tap(it) }
-            "type" -> {
-                // noemu.py separates the target from the text with a tab, so either may contain spaces.
-                val (target, text) = rest.split(if ('\t' in rest) "\t" else " ", limit = 2).let { it[0] to it.getOrElse(1) { "" } }
-                act(target) { type(it, text) }
-            }
-            "scroll" -> scroll(rest)
+            "tap" -> act(args[0]) { tap(it) }
+            "type" -> act(args[0]) { type(it, args[1]) }
+            "scroll" -> scroll(args)
             "back" -> { onActivity<Unit> { back(it) }; stable(); screen() }
             "leaks" -> {
                 elements = emptyList()
                 leaked().joinToString("\n\n") { (_, text, app) -> if (app) text else "$text (not the app's)" }
                     .ifEmpty { "no destroyed activity is still in memory" }
             }
-            "kill" -> { killAndRestore(); stable(); "killed in the background and reopened (saved state ${savedBytes / 1024} KB)\n" + screen() }
-            "rotate" -> { repeat(rest.toIntOrNull() ?: 1) { rotate(); stable(2500) }; "now ${if (landscape) "landscape" else "portrait"}\n" + screen() }
-            "wait" -> { settle(rest.toLongOrNull() ?: 1000); stable(); screen() }
-            "open" -> openCommand(rest.trim())
-            "network" -> network(rest.trim())
-            "shot" -> shot(File(rest.ifBlank { File(out, "screen.png").path }))
-            "crawl" -> rest.split(" ").let { a -> crawl(a[0].toIntOrNull() ?: 200, a.getOrNull(1)?.toLongOrNull() ?: 10) }
+            "kill", "restore-activity" -> {
+                killAndRestore(); stable()
+                "activity restored from saved state; JVM, application statics and singletons preserved (saved state ${savedBytes / 1024} KB)\n" + screen()
+            }
+            "rotate" -> { repeat(args.firstOrNull()?.toInt() ?: 1) { checkDeadline(); rotate(); stable(2500) }; "now ${if (landscape) "landscape" else "portrait"}\n" + screen() }
+            "wait" -> { settle(args.firstOrNull()?.toLong() ?: 1000); stable(); screen() }
+            "open" -> openCommand(args[0])
+            "network" -> network(args.joinToString(" "))
+            "shot" -> shot(File(args.firstOrNull() ?: File(out, "screen.png").path))
+            "crawl" -> crawl(args.firstOrNull()?.toInt() ?: 200, args.getOrNull(1)?.toLong() ?: 10)
             "logs" -> ShadowLog.getLogs().takeLast(60).joinToString("\n") { "${it.type.toLevel()} ${it.tag}: ${it.msg}" + (it.throwable?.let { e -> "\n  $e" } ?: "") }
-            else -> "unknown command: $cmd (screen, tap, type, scroll, back, rotate, kill, leaks, wait, open, network, shot, logs, crawl, quit)"
+            else -> throw DriverFailure("unsupported", "unknown command ${command.name}", "unsupported")
         }
     }
 
@@ -191,14 +230,28 @@ class NoemuDriver {
 
     // ---------------------------------------------------------------------------------------------- the screen
     class Element(val label: String, val kind: String, val bounds: Rect, val click: (() -> Unit)?, val setText: ((String) -> Unit)?,
-                  val scroll: ((Int) -> Unit)?, val state: String? = null)
+                  val scroll: ((Int, Int) -> Unit)?, val state: String? = null,
+                  val enabled: Boolean = true, val identity: Any? = null, val selector: String? = null,
+                  val horizontal: Boolean = false, val vertical: Boolean = false) {
+        fun sameTarget(other: Element): Boolean = identity == other.identity && label == other.label &&
+            kind == other.kind && bounds == other.bounds && state == other.state && enabled == other.enabled &&
+            (click != null) == (other.click != null) && (setText != null) == (other.setText != null) &&
+            horizontal == other.horizontal && vertical == other.vertical
+    }
 
     private fun screen(): String {
         elements = collect()
         val name = onActivity { it.javaClass.simpleName }
+        observationId = java.util.UUID.randomUUID().toString()
+        observation = JSONObject().put("id", observationId).put("activity", name).put("elements", JSONArray(elements.mapIndexed { i, e ->
+            JSONObject().put("ref", "$observationId:$i").put("label", e.label).put("kind", e.kind)
+                .put("selector", e.selector ?: JSONObject.NULL).put("enabled", e.enabled).put("visible", true)
+                .put("editable", e.setText != null).put("state", e.state ?: JSONObject.NULL)
+                .put("bounds", JSONArray(listOf(e.bounds.left, e.bounds.top, e.bounds.right, e.bounds.bottom)))
+        }))
         val lines = elements.mapIndexed { i, e ->
             val can = listOfNotNull("tap".takeIf { e.click != null }, "type".takeIf { e.setText != null }, "scroll".takeIf { e.scroll != null })
-            "[$i] ${e.kind} ${e.label.take(80).ifBlank { "(no label)" }}${e.state?.let { " [$it]" } ?: ""}  @${e.bounds.centerX()},${e.bounds.centerY()}" +
+            "[$i] ${e.kind} ${e.label.take(80).ifBlank { "(no label)" }}${e.state?.let { " [$it]" } ?: ""}${if (e.enabled) "" else " [disabled]"}  @${e.bounds.centerX()},${e.bounds.centerY()}" +
                 if (can.isEmpty()) "" else "  (${can.joinToString()})"
         }
         // NOEMU_SHOTS=0: no screenshot after every action (rendering one costs about 0.3 s); `shot` still works.
@@ -223,16 +276,16 @@ class NoemuDriver {
 
     /** Every window on screen, bottom to top: the activity, then dialogs, popups, menus. */
     @Suppress("UNCHECKED_CAST")
-    private fun windows(): List<View> = runCatching {
+    private fun windows(): List<View> {
         val global = Class.forName("android.view.WindowManagerGlobal")
         val instance = global.getMethod("getInstance").invoke(null)
         val field = global.getDeclaredField("mViews").apply { isAccessible = true }
         val top = stack.lastOrNull()?.get()
         // On a device, finishing an activity takes its dialogs with it; Robolectric leaves them around. Show the top
         // activity's windows and the app's own (toasts), not those of activities further down or gone.
-        (field.get(instance) as List<View>).filter { it.isAttachedToWindow && it.visibility == View.VISIBLE }
+        return (field.get(instance) as List<View>).filter { it.isAttachedToWindow && it.visibility == View.VISIBLE }
             .filter { v -> activityOf(v.context).let { it == null || it === top } }
-    }.getOrElse { listOf(onActivity { it.window.decorView }) }
+    }
 
     private fun activityOf(context: android.content.Context?): Activity? {
         var c = context
@@ -244,63 +297,98 @@ class NoemuDriver {
     }
 
     private fun walk(view: View, found: MutableList<Element>) {
-        if (view.visibility != View.VISIBLE) return
+        if (view.visibility != View.VISIBLE || !view.isShown || view.alpha <= 0f) return
         if (ComposeReader.read(view, found)) return  // a Compose root: its semantics tree
-        val r = Rect().also { view.getGlobalVisibleRect(it) }
+        val r = Rect()
+        if (!view.getGlobalVisibleRect(r)) return
+        val horizontal = view.canScrollHorizontally(1) || view.canScrollHorizontally(-1)
+        val vertical = view.canScrollVertically(1) || view.canScrollVertically(-1)
         val label = when (view) {
             is EditText -> view.text?.toString().orEmpty().ifBlank { view.hint?.toString().orEmpty() }
             is TextView -> view.text?.toString().orEmpty()
             else -> view.contentDescription?.toString().orEmpty()
         }
         val kind = when (view) { is EditText -> "field"; is TextView -> if (view.isClickable) "button" else "text"; else -> if (view.isClickable) "button" else "view" }
-        if (label.isNotBlank() || view.isClickable || view is EditText) {
+        if (label.isNotBlank() || view.isClickable || view is EditText || horizontal || vertical) {
             val state = (view as? android.widget.Checkable)?.let { if (it.isChecked) "on" else "off" }
                 ?: if (view.isSelected) "selected" else null
+            // View.generateViewId() supplies identity without an R resource.
+            // Keep the observation reference; do not invent a resource selector.
+            val selector = if (view.id == View.NO_ID) null else try {
+                "id:${view.resources.getResourceName(view.id)}"
+            } catch (_: android.content.res.Resources.NotFoundException) {
+                null
+            }
             found += Element(label.ifBlank { view.contentDescription?.toString().orEmpty() }, kind, r, state = state,
-                click = if (view.isClickable) ({ view.performClick() }) else null,
+                click = if (view.isClickable) ({ if (!view.performClick()) throw DriverFailure("action_rejected", "view rejected click") }) else null,
                 setText = if (view is EditText) ({ t -> view.setText(t) }) else null,
-                scroll = if (view.canScrollVertically(1) || view.canScrollVertically(-1)) ({ dy -> view.scrollBy(0, dy) }) else null)
+                enabled = view.isEnabled, identity = view,
+                selector = selector,
+                horizontal = horizontal, vertical = vertical,
+                scroll = if (horizontal || vertical) ({ dx, dy -> view.scrollBy(dx, dy) }) else null)
         }
         if (view is ViewGroup) for (i in 0 until view.childCount) walk(view.getChildAt(i), found)
     }
 
     // -------------------------------------------------------------------------------------------------- actions
-    private fun find(target: String): Element? {
-        if (elements.isEmpty()) elements = collect()
-        target.toIntOrNull()?.let { return elements.getOrNull(it) }
-        val all = collect()
-        return all.firstOrNull { it.label.equals(target, true) && (it.click != null || it.setText != null) }
-            ?: all.firstOrNull { it.label.contains(target, true) && (it.click != null || it.setText != null) }
-            ?: all.firstOrNull { it.label.contains(target, true) }
+    private fun find(target: String): Element {
+        val fresh = collect()
+        val index = target.toIntOrNull() ?: target.takeIf { it.contains(":") && it.substringBefore(":") == observationId }
+            ?.substringAfter(":")?.toIntOrNull()
+        if (index != null) {
+            val old = elements.getOrNull(index)
+                ?: throw DriverFailure("stale_target", "no element $target in the last observation; request screen")
+            val current = fresh.getOrNull(index)
+            if (current == null || !old.sameTarget(current))
+                throw DriverFailure("stale_target", "element $target changed since observation; request screen")
+            return current
+        }
+        if (target.matches(Regex("[0-9a-f-]{36}:[0-9]+")))
+            throw DriverFailure("stale_target", "reference belongs to another observation; request screen")
+        val matches = fresh.filter { if (target.startsWith("id:") || target.startsWith("tag:")) it.selector == target else it.label.equals(target, true) }
+        if (matches.isEmpty()) throw DriverFailure("target_not_found", "nothing on screen matches $target")
+        if (matches.size > 1) throw DriverFailure("ambiguous_target", "${matches.size} elements match $target; use an observation reference")
+        return matches.single()
     }
 
     private fun act(target: String, action: (Element) -> String): String {
-        val e = find(target) ?: return "nothing on screen matches \"$target\"\n" + screen()
+        val e = find(target)
+        if (!e.enabled) throw DriverFailure("disabled_target", "${e.label} is disabled")
         val result = action(e)
         stable()
         return result + "\n" + screen()
     }
 
     private fun tap(e: Element): String {
-        val click = e.click ?: return "\"${e.label}\" can't be tapped"
+        if (!e.enabled) throw DriverFailure("disabled_target", "${e.label} is disabled")
+        val click = e.click ?: throw DriverFailure("unsupported_action", "${e.label} cannot be tapped", "unsupported")
         onActivity { click() }
         return "tapped \"${e.label}\""
     }
 
     private fun type(e: Element, text: String): String {
-        val set = e.setText ?: return "\"${e.label}\" isn't a text field"
+        if (!e.enabled) throw DriverFailure("disabled_target", "${e.label} is disabled")
+        val set = e.setText ?: throw DriverFailure("unsupported_action", "${e.label} is not editable", "unsupported")
         onActivity { set(text) }
         return "typed into \"${e.label}\""
     }
 
-    private fun scroll(arg: String): String {
-        val parts = arg.split(" ")
-        val dy = (if (parts.getOrNull(0) == "up") -1 else 1) * 1200
-        val list = parts.getOrNull(1)?.toIntOrNull()?.let { elements.getOrNull(it) } ?: collect().firstOrNull { it.scroll != null }
-            ?: return "nothing scrollable"
-        onActivity { list.scroll!!(dy) }
+    private fun scroll(args: List<String>): String {
+        val direction = args.firstOrNull() ?: "down"
+        val horizontal = direction in setOf("left", "right")
+        val candidates = collect().filter { it.scroll != null && (if (horizontal) it.horizontal else it.vertical) }
+        val list = args.getOrNull(1)?.let { find(it) } ?: when (candidates.size) {
+            0 -> throw DriverFailure("target_not_found", "nothing scrollable in that direction")
+            1 -> candidates.single()
+            else -> throw DriverFailure("ambiguous_target", "multiple scroll containers; supply a target")
+        }
+        if (!list.enabled) throw DriverFailure("disabled_target", "scroll target disabled")
+        if (list.scroll == null || !(if (horizontal) list.horizontal else list.vertical))
+            throw DriverFailure("unsupported_action", "target does not support that scroll axis", "unsupported")
+        val distance = if (direction in setOf("up", "left")) -1200 else 1200
+        onActivity { list.scroll.invoke(if (horizontal) distance else 0, if (horizontal) 0 else distance) }
         settle()
-        return "scrolled ${parts.getOrNull(0) ?: "down"}\n" + screen()
+        return "scrolled $direction\n" + screen()
     }
 
     // ------------------------------------------------------------------------------------------------- crawling
@@ -357,7 +445,8 @@ class NoemuDriver {
                     if (app) leaks.getOrPut(key) { "$text\n  after: ${path.takeLast(8).joinToString(" > ")}" } else limits.add(text)
                 }
             }
-            es = runCatching { collect() }.getOrElse { emptyList() }
+            checkDeadline()
+            es = collect().filter { it.enabled }
             if (stack.isEmpty()) restart()
             val sig = signature(es)
             screens += sig
@@ -404,7 +493,7 @@ class NoemuDriver {
                     val before = snapshot()
                     path += "kill"; killAndRestore(); stable(2500)
                     val after = snapshot()
-                    rotationFinding(before, after, "the app was killed in the background and reopened")?.let { f ->
+                    rotationFinding(before, after, "activity saved-state restoration in the same JVM")?.let { f ->
                         (if (f.sure) stateLoss else toCheck).getOrPut(f.key) { "${f.text}\n  after: ${path.takeLast(8).joinToString(" > ")}" }
                     }
                     // The system carries saved state across processes in one binder transaction (about 1 MB, shared).
@@ -438,18 +527,8 @@ class NoemuDriver {
             }
             actions++
             val background = synchronized(backgroundCrashes) { backgroundCrashes.toList().also { backgroundCrashes.clear() } }
-            // Failures inside Robolectric's own stand-ins (a bound service that never connects, ...) are limits of
-            // running on the JVM, not app bugs: note them and carry on.
-            val (simulated, real) = (listOfNotNull(outcome.exceptionOrNull()) + background).partition { e ->
-                // Where it was thrown: the frames above the app's own code. Robolectric's frames further down (it
-                // drives the lifecycle) don't matter.
-                val root = generateSequence(e) { it.cause }.last()
-                root.stackTrace.takeWhile { !it.className.startsWith(code) }
-                    .any { it.className.startsWith("org.robolectric.") || it.className.startsWith("dev.noemu.") } ||
-                    // GPU features Robolectric's native graphics can't build.
-                    root.stackTrace.firstOrNull()?.className in setOf("android.graphics.MeshSpecification", "android.graphics.Mesh", "android.graphics.RuntimeShader")
-            }
-            simulated.forEach { e -> limits.add("${e.javaClass.simpleName}: ${e.message?.take(120)}") }
+            checkDeadline()
+            val real = listOfNotNull(outcome.exceptionOrNull()) + background
             real.firstOrNull()?.let { e ->
                 val root = generateSequence(e) { it.cause }.last()
                 val frames = root.stackTrace
@@ -465,12 +544,18 @@ class NoemuDriver {
             }
             if (stack.isEmpty()) restart()
         }
-        return "crawled $actions actions over ${screens.size} distinct screens; ${crashes.size} distinct crash(es), " +
+        val report = "crawled $actions actions over ${screens.size} distinct screens; ${crashes.size} distinct crash(es), " +
             "${stateLoss.size} state problem(s), ${leaks.size} leak(s)\n\n" +
             (crashes.values + stateLoss.values + leaks.values).joinToString("\n\n") +
             (if (toCheck.isEmpty()) "" else "\n\nworth a look (a rotation or restart changed these; a search bar or menu closing may be fine):\n" +
                 toCheck.values.joinToString("\n") { "  " + it.replace("\n", "\n  ") }) +
-            if (limits.isEmpty()) "" else "\n\nnot app bugs (things the JVM can't do; ignored):\n" + limits.joinToString("\n") { "  $it" }
+            if (limits.isEmpty()) "" else "\n\nunresolved limitations:\n" + limits.joinToString("\n") { "  $it" }
+        val reportFile = File(out, "crawl-report.txt").apply { writeText(report) }
+        artifacts += reportFile.absolutePath
+        if (crashes.isNotEmpty() || stateLoss.isNotEmpty() || leaks.isNotEmpty())
+            throw DriverFailure("crawl_findings", report)
+        if (limits.isNotEmpty()) throw DriverFailure("unresolved_discrepancy", report, "inconclusive")
+        return report
     }
 
     /**
@@ -582,7 +667,7 @@ class NoemuDriver {
             parcel.recycle()
         }
         old.destroy()
-        released(a, "the app was killed in the background")
+        released(a, "activity restored from saved state in the same JVM")
         @Suppress("UNCHECKED_CAST")
         stack[stack.lastIndex] = Robolectric.buildActivity(a.javaClass as Class<Activity>, a.intent).setup(restored)
     }
@@ -620,10 +705,7 @@ class NoemuDriver {
         val alive = gone.filter { it.first.get() != null }.map { it.second }.distinct().filter { analysed.add(it) }
         gone.clear()  // each kind reported once: a heap dump and its analysis take a minute or two
         if (alive.isEmpty()) return emptyList()
-        val traces = runCatching { leakTraces() }.getOrElse { e ->
-            System.err.println("noemu: leak analysis failed: $e")
-            return alive.map { Triple(it, it, false) }
-        }
+        val traces = leakTraces()
         return alive.map { what ->
             val name = what.substringBefore(" ")
             val trace = traces.firstOrNull { it.second.endsWith(".$name") || it.second == name }
@@ -711,21 +793,20 @@ class NoemuDriver {
             Intent().setClassName(app, if (arg.startsWith(".")) app.packageName + arg else arg)
         }
         val before = stack.size
-        val started = runCatching { open(intent) }
-        started.exceptionOrNull()?.let { return "could not open $arg: $it" }
-        if (stack.size == before) return "nothing in this app handles $arg"
+        open(intent)
+        if (stack.size == before) throw DriverFailure("target_not_found", "nothing in this app handles $arg")
         stable()
         return screen()
     }
 
     private fun open(intent: Intent) {
         val component = intent.component ?: intent.resolveActivity(app.packageManager)
-            ?: run { System.err.println("noemu: nothing in this app handles $intent"); return }
+            ?: throw DriverFailure("target_not_found", "nothing in this app handles $intent")
         // A launcher entry is often an <activity-alias>: start the activity it points at.
         val target = runCatching { app.packageManager.getActivityInfo(component, 0).targetActivity }.getOrNull() ?: component.className
         @Suppress("UNCHECKED_CAST")
         val cls = Class.forName(target, true, app.classLoader) as Class<Activity>
-        stack.lastOrNull()?.let { runCatching { it.pause().stop() } }
+        stack.lastOrNull()?.let { it.pause().stop() }
         stack += Robolectric.buildActivity(cls, intent.setComponent(component)).setup()
     }
 
@@ -740,12 +821,12 @@ class NoemuDriver {
             }
             val finished = stack.filter { it.get().isFinishing || it.get().isDestroyed }
             for (c in finished) {
-                runCatching { c.pause().stop().destroy() }
+                c.pause().stop().destroy()
                 stack.remove(c)
                 released(c.get(), "it was closed")
                 changed = true
             }
-            if (finished.isNotEmpty()) stack.lastOrNull()?.let { runCatching { it.restart().resume() } }
+            if (finished.isNotEmpty()) stack.lastOrNull()?.let { it.restart().resume() }
             if (!changed) return
             ShadowLooper.idleMainLooper()
         }
@@ -765,8 +846,7 @@ class NoemuDriver {
             settle(300)
             // Digits masked: a running clock, a timer or a progress count changes every frame but doesn't make the
             // screen unsettled for an agent's next action.
-            val now = runCatching { collect().joinToString("|") { "${it.kind}:${it.label.replace(DIGITS, "#")}:${it.bounds}" } }
-                .getOrDefault("")
+            val now = collect().joinToString("|") { "${it.kind}:${it.label.replace(DIGITS, "#")}:${it.bounds}" }
             same = if (now == last && now.isNotEmpty()) same + 1 else 0
             if (same >= 2) return
             last = now
@@ -792,6 +872,7 @@ class NoemuDriver {
         val until = System.currentTimeMillis() + ms / 2
         var left = ms
         while (left > 0 || System.currentTimeMillis() < until) {
+            checkDeadline()
             ShadowLooper.idleMainLooper(50, java.util.concurrent.TimeUnit.MILLISECONDS)
             Thread.sleep(25)
             left -= 50
@@ -815,10 +896,11 @@ class NoemuDriver {
         // a plain bitmap canvas if that fails.
         val bitmap = runCatching { rendered(view.width, view.height, paint) }.getOrElse { hw ->
             runCatching { Bitmap.createBitmap(view.width, view.height, Bitmap.Config.ARGB_8888).also { paint(Canvas(it)) } }
-                .getOrElse { e -> return@onActivity "no screenshot: ${e.message?.take(120)} (rendered: $hw)" }
+                .getOrElse { e -> throw DriverFailure("screenshot_failed", "${e.message?.take(120)} (rendered: $hw)") }
         }
         file.parentFile?.mkdirs()
         file.outputStream().use { bitmap.compress(Bitmap.CompressFormat.PNG, 100, it) }
+        artifacts += file.absolutePath
         "screenshot ${file.absolutePath}"
     }
 
@@ -875,7 +957,7 @@ object ComposeReader {
     fun read(view: View, found: MutableList<NoemuDriver.Element>): Boolean {
         if (!isComposeRoot(view)) return false
         val root = call(call(view, "getSemanticsOwner"), "getRootSemanticsNode") ?: return false
-        node(root, found)
+        node(root, found, view)
         return true
     }
 
@@ -903,8 +985,9 @@ object ComposeReader {
         return s
     }
 
-    private fun node(node: Any, found: MutableList<NoemuDriver.Element>) {
+    private fun node(node: Any, found: MutableList<NoemuDriver.Element>, owner: View) {
         val p = props(node)
+        if (p.containsKey("InvisibleToUser") || p.containsKey("HideFromAccessibility")) return
         val label = listOfNotNull(text(p["ContentDescription"]), text(p["Text"]), text(p["EditableText"]))
             .map { it.trim() }.filter { it.isNotEmpty() }.distinctBy { it.lowercase() }.joinToString(" ")
         val click = action(p["OnClick"])
@@ -924,12 +1007,15 @@ object ComposeReader {
             val state = p["ToggleableState"]?.toString()?.lowercase()?.let { if (it == "indeterminate") "partly" else it }
                 ?: (p["Selected"] as? Boolean)?.let { if (it) "selected" else null }
             found += NoemuDriver.Element(label, kind, Rect(edge("getLeft"), edge("getTop"), edge("getRight"), edge("getBottom")), state = state,
-                click = click?.let { f -> { invoke(f); Unit } },
-                setText = setText?.let { f -> { t: String -> invoke(f, annotated(t)); Unit } },
-                scroll = scrollBy?.let { f -> { dy: Int -> invoke(f, 0f, dy.toFloat()); Unit } })
+                enabled = !p.containsKey("Disabled"), identity = owner to call(node, "getId"),
+                selector = (p["TestTag"] as? String)?.let { "tag:$it" },
+                horizontal = p.containsKey("HorizontalScrollAxisRange"), vertical = p.containsKey("VerticalScrollAxisRange"),
+                click = click?.let { f -> { if (invoke(f) != true) throw DriverFailure("action_rejected", "Compose rejected click"); Unit } },
+                setText = setText?.let { f -> { t: String -> if (invoke(f, annotated(t)) != true) throw DriverFailure("action_rejected", "Compose rejected text"); Unit } },
+                scroll = scrollBy?.let { f -> { dx: Int, dy: Int -> if (invoke(f, dx.toFloat(), dy.toFloat()) != true) throw DriverFailure("action_rejected", "Compose rejected scroll"); Unit } })
         }
         // Children of a clickable node (a button's label) belong to it.
-        if (click == null) (call(node, "getChildren") as? List<*>)?.filterNotNull()?.forEach { node(it, found) }
+        if (click == null) (call(node, "getChildren") as? List<*>)?.filterNotNull()?.forEach { node(it, found, owner) }
     }
 }
 
@@ -953,7 +1039,7 @@ class ProvidersFirst : ShadowApplication() {
                 @Suppress("UNCHECKED_CAST")
                 val cls = Class.forName(provider.name, true, app.classLoader) as Class<ContentProvider>
                 Robolectric.buildContentProvider(cls).create(provider)
-            }.onFailure { System.err.println("noemu: provider ${provider.name}: $it") }
+            }.getOrThrow()
         }
     }
 }
@@ -994,7 +1080,7 @@ class BindsOwnServices : org.robolectric.shadows.ShadowContextImpl() {
         }
         val binder = service.onBind(intent) ?: return@runCatching
         org.robolectric.Shadows.shadowOf(app).setComponentNameAndServiceForBindServiceForIntent(intent, component, binder)
-    }.onFailure { System.err.println("noemu: binding ${intent.component ?: intent.action}: $it") }
+    }.getOrThrow()
 
     companion object {
         private val services = mutableMapOf<String, android.app.Service>()
@@ -1012,4 +1098,4 @@ fun online(context: android.content.Context) = runCatching {
         addCapability(android.net.NetworkCapabilities.NET_CAPABILITY_NOT_METERED)
     }
     org.robolectric.Shadows.shadowOf(cm).setNetworkCapabilities(cm.activeNetwork, caps)
-}.onFailure { System.err.println("noemu: network: $it") }
+}.getOrThrow()
