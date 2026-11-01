@@ -72,6 +72,8 @@ Do not turn unavailable prerequisites or cancelled jobs into skips or passes.
 1. **Truthful outcomes.** Confirm that driver failures, background crashes, partial
    execution, malformed replies, and timeouts cannot become successful CLI/MCP
    results. Check the driver parser as well as Python validation.
+   Run the focus-crash rotation regression on both fixture apps; a callback name
+   in a stack trace must never turn a thrown exception into success.
 2. **Target correctness.** Exercise stale references, duplicate labels, disabled
    controls, clipped or hidden content, dynamic View IDs, Compose semantics, and
    dialogs/popups. Confirm that missing resource names do not break observation

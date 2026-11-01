@@ -11,7 +11,7 @@ needed for editing and was not downloaded. It is not removed from the upstream t
 The baseline was **23 Python tests passing**. The first safety work unit passed
 **30 tests**, including real child-process checks for signaling and cleanup.
 The initial expanded suite passed **44 tests in 0.551 seconds**. Follow-up
-regressions on 2026-11-01 passed **70 tests in 0.332 seconds** in this Linux environment.
+regressions on 2026-11-01 passed **70 tests in 0.403 seconds** in this Linux environment.
 A wheel built successfully and its installed CLI, MCP import, Kotlin sources, init
 script, and service resources passed a smoke check outside the source directory.
 That offline smoke environment reused installed dependencies; it is not a clean
@@ -87,6 +87,24 @@ references and receive no invented resource selector. The Views fixture uses bot
 generated and resource IDs, with an integration regression covering observation and
 typing. **This Kotlin change is unverified.** The attempted fixture run failed its
 prerequisite check (`fixture wrapper missing`) and executed zero driver tests.
+
+### Rotation exception suppression
+
+Source inspection found that rotation suppressed any `NullPointerException` with
+a `windowFocusChanged` method anywhere in its stack. That is not evidence that the
+exception is harmless: Robolectric 4.16's
+[ActivityController.recreate](https://github.com/robolectric/robolectric/blob/robolectric-4.16/shadows/framework/src/main/java/org/robolectric/android/controller/ActivityController.java)
+calls `windowFocusChanged(true)` after making the recreated activity visible,
+and focus dispatch reaches application callbacks.
+
+The driver now lets this exception reach its ordinary failure result. Both fixture
+apps include `FocusCrashActivity`, which succeeds at launch and deliberately throws
+on focus after recreation. The integration regression requires the precise fixture
+crash to remain visible as `execution_error`, rather than accepting any failed
+operation. **This Kotlin change and regression have not run.** The new local gate
+attempt again failed at the missing-wrapper prerequisite and ran zero driver tests.
+If Robolectric itself throws during focus dispatch, rotation will now correctly
+fail too; compatibility work must reproduce and fix that defect instead of hiding it.
 
 The updated wheel was installed into a separate virtual environment reusing
 available dependencies, and its CLI, imports, and packaged resources passed checks

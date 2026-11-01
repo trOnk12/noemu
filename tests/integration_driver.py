@@ -115,6 +115,16 @@ class DriverIntegrationTest(unittest.TestCase):
         after = [e["label"] for e in result["observation"]["elements"]]
         self.assertNotEqual(before, after)
 
+    def test_focus_crash_during_rotation_is_never_reported_as_success(self):
+        opened = self.act("open", "dev.noemu.fixture.FocusCrashActivity")
+        self.assertEqual(opened["status"], "passed", opened)
+        self.assertTrue(any(e["label"] == "Focus crash fixture ready"
+                            for e in opened["observation"]["elements"]), opened)
+        result = self.act("rotate")
+        self.assertEqual(result["status"], "failed", result)
+        self.assertEqual(result["error"]["code"], "execution_error", result)
+        self.assertIn("fixture focus crash after recreation", result["error"]["message"])
+
     def test_crash_is_a_cli_failure(self):
         result = subprocess.run([sys.executable, "-m", "noemu", "--id", self.instance, "tap", "Crash"],
                                 capture_output=True, text=True, timeout=120)
