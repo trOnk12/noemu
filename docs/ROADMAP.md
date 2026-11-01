@@ -6,6 +6,11 @@ and optional checks against real Android. This roadmap replaces the historical
 product conclusions and fleet plans. Historical reports remain as evidence of
 specific earlier experiments.
 
+Current execution is autonomous engineering and automated validation. Recruiting
+developers, conducting interviews, and contacting external reviewers are outside
+the authorized scope. Use maintained fixtures and reproducible checks to establish
+technical behavior; they do not establish adoption or willingness to pay.
+
 ## Current gate: A — repair the foundation
 
 The current change addresses unsafe instance paths and PID-only signaling,
@@ -132,9 +137,10 @@ lifecycle cycles with no orphan processes or cross-instance data leakage.
 
 Track false verification, incomplete runs, replay coverage, runtime patch tests,
 backend versions/capabilities, memory, throughput, model cost, and setup failures.
-Require three external developers completing real workflows and evidence of repeat
-use. Compare with a capped emulator workflow on KVM-capable hardware and separately
-demonstrate utility without KVM. Targets are not measured achievements.
+External adoption targets (three developers completing workflows and repeat use)
+are deferred under the current no-outreach scope and remain unverified. Compare
+with a capped emulator workflow on KVM-capable hardware and separately demonstrate
+utility without KVM. Targets are not measured achievements.
 
 Every work unit follows: inspect → define acceptance → reproduce/baseline → smallest
 complete change → relevant checks → evidence and limitations. Advance only when the
