@@ -69,7 +69,12 @@ def terminate(directory: Path, timeout: float = 5) -> None:
     process = verified(directory)
     send_signal(directory, signal.SIGKILL)
     deadline = time.monotonic() + timeout
-    while process.is_running() and process.status() != psutil.STATUS_ZOMBIE:
+    while True:
+        try:
+            if not process.is_running() or process.status() == psutil.STATUS_ZOMBIE:
+                return
+        except psutil.NoSuchProcess:
+            return
         if time.monotonic() >= deadline:
             raise TimeoutError(f"noemu: process {process.pid} has not exited; cleanup deferred")
         time.sleep(0.01)
