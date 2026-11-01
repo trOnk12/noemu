@@ -26,6 +26,7 @@ jobs:
           cd "$RUNNER_TEMP"
           "$RUNNER_TEMP/noemu-install/bin/noemu" --help
           "$RUNNER_TEMP/noemu-install/bin/python" -c 'from importlib.resources import files; p = files("noemu"); assert (p / "driver/Protocol.kt").is_file(); assert (p / "driver/NoemuDriver.kt").is_file(); assert (p / "noemu.init.gradle").is_file(); import noemu.mcp_server'
+          "$RUNNER_TEMP/noemu-install/bin/python" "$GITHUB_WORKSPACE/tests/mcp_stdio.py"
   driver:
     runs-on: ubuntu-latest
     timeout-minutes: 35

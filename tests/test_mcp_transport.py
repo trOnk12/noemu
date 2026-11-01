@@ -40,6 +40,22 @@ class BoundedInputTest(unittest.TestCase):
 
 
 class BoundedOutputTest(unittest.TestCase):
+    def test_stdio_uses_utf8_even_when_python_stdout_is_ascii(self):
+        message = '{"jsonrpc":"2.0","id":"żółw-日本語-😀","result":{}}\n'
+
+        async def direct_write(function, *args, **kwargs):
+            return function(*args)
+
+        async def write():
+            with io.TextIOWrapper(io.BytesIO(), encoding="ascii") as original:
+                writer = mcp_server.stdio_output(original)
+                await writer.write(message)
+                await writer.flush()
+                self.assertEqual(original.buffer.getvalue(), message.encode("utf-8"))
+
+        with mock.patch.object(anyio.to_thread, "run_sync", direct_write):
+            anyio.run(write)
+
     def write_messages(self, messages, limit=512):
         output = []
         class Sink:

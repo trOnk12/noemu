@@ -11,7 +11,7 @@ needed for editing and was not downloaded. It is not removed from the upstream t
 The baseline was **23 Python tests passing**. The first safety work unit passed
 **30 tests**, including real child-process checks for signaling and cleanup.
 The initial expanded suite passed **44 tests in 0.551 seconds**. Follow-up
-regressions on 2026-11-01 passed **69 tests in 0.394 seconds** in this Linux environment.
+regressions on 2026-11-01 passed **70 tests in 0.403 seconds** in this Linux environment.
 A wheel built successfully and its installed CLI, MCP import, Kotlin sources, init
 script, and service resources passed a smoke check outside the source directory.
 That offline smoke environment reused installed dependencies; it is not a clean
@@ -21,7 +21,7 @@ dependency-resolution test. No Android-conformance or performance result is clai
 
 | Check | Status |
 | --- | --- |
-| Existing Python regressions and new safety/protocol/MCP/benchmark tests | Passed locally (69 tests) |
+| Existing Python regressions and new safety/protocol/MCP/benchmark tests | Passed locally (70 tests) |
 | Wheel build and installed-package resource smoke check | Passed locally; existing dependencies reused |
 | Installed MCP stdio integration | Failed locally: initialization response timed out after 10 seconds in the restricted sandbox |
 | Fully isolated install with freshly resolved dependencies | Pending CI |
@@ -32,8 +32,10 @@ dependency-resolution test. No Android-conformance or performance result is clai
 
 ## Published branch and CI blocker
 
-The implementation is published in [PR #1](https://github.com/trOnk12/noemu/pull/1)
-on `codex/noemu-foundation`, preserving upstream history and the existing demo GIF.
+The foundation in [PR #1](https://github.com/trOnk12/noemu/pull/1) was merged into
+`main` at `63fbaccf6699d7cf0691b57460eb0dfce0e81085` on 2026-11-01, preserving
+upstream history and the existing demo GIF. The merge did not pass or waive the
+unfinished validation gates. Subsequent fixes use `codex/noemu-validation-fixes`.
 GitHub Actions [run 41296966023](https://github.com/trOnk12/noemu/actions/runs/41296966023)
 did not start its test jobs: GitHub reports that the account is locked due to a
 billing issue. Cancelled matrix jobs are not passing checks. This prevents the
@@ -68,6 +70,12 @@ required Kotlin, live-driver, and isolated-install gate from establishing an out
 - Python command/result validation now rejects unpaired Unicode surrogates. The
   regressions failed before the fix and pass afterward; valid emoji, Polish and
   Japanese text, and escaped whitespace still round-trip without replacement.
+- MCP output now encodes UTF-8 directly to stdout's binary buffer, regardless of
+  the inherited locale or `PYTHONIOENCODING`. A timer-assisted installed-server
+  experiment completed initialization but timed out when echoing a Polish,
+  Japanese, and emoji request ID under ASCII output settings. The encoding unit
+  regression and the same diagnostic pass after the fix. The normal subprocess
+  gate remains blocked as described below.
 
 The driver request parser now uses strict `JsonReader` parsing before command
 validation, with duplicate-field checks, complete-document consumption, a nesting
@@ -82,6 +90,24 @@ generated and resource IDs, with an integration regression covering observation 
 typing. **This Kotlin change is unverified.** The attempted fixture run failed its
 prerequisite check (`fixture wrapper missing`) and executed zero driver tests.
 
+### Rotation exception suppression
+
+Source inspection found that rotation suppressed any `NullPointerException` with
+a `windowFocusChanged` method anywhere in its stack. That is not evidence that the
+exception is harmless: Robolectric 4.16's
+[ActivityController.recreate](https://github.com/robolectric/robolectric/blob/robolectric-4.16/shadows/framework/src/main/java/org/robolectric/android/controller/ActivityController.java)
+calls `windowFocusChanged(true)` after making the recreated activity visible,
+and focus dispatch reaches application callbacks.
+
+The driver now lets this exception reach its ordinary failure result. Both fixture
+apps include `FocusCrashActivity`, which succeeds at launch and deliberately throws
+on focus after recreation. The integration regression requires the precise fixture
+crash to remain visible as `execution_error`, rather than accepting any failed
+operation. **This Kotlin change and regression have not run.** The new local gate
+attempt again failed at the missing-wrapper prerequisite and ran zero driver tests.
+If Robolectric itself throws during focus dispatch, rotation will now correctly
+fail too; compatibility work must reproduce and fix that defect instead of hiding it.
+
 The updated wheel was installed into a separate virtual environment reusing
 available dependencies, and its CLI, imports, and packaged resources passed checks
 from `/tmp`. The actual installed MCP stdio test was also attempted: it failed at
@@ -89,11 +115,31 @@ initialization with `MCP response deadline exceeded` after 10.021 seconds. The
 framing unit tests deliberately use a synchronous reader; they do not count as a
 passing subprocess integration test.
 
-The managed shell blocks networking, including asyncio's cross-thread socket wakeup.
-A test-only event-loop timer allows in-process MCP worker callbacks to run in that
-sandbox. Production MCP code does not contain that timer. The test suite exercises
-the official SDK session and validation handlers, but this is not a substitute for
-an installed stdio-client integration check in a normal environment.
+The managed shell blocks socket operations: a direct `socket.socketpair()` probe
+raised `PermissionError` with errno 1. This also interferes with asyncio's
+cross-thread wakeups. A test-only event-loop timer allows in-process MCP worker
+callbacks to run in that sandbox. Production MCP code does not contain that timer.
+
+To isolate this restriction, `tests/mcp_sandbox_diagnostic.py` runs the installed
+server with a 10 ms timer and otherwise uses the same subprocess contract test.
+After the UTF-8 fix, this **diagnostic** passed in **1.237 seconds**, covering actual
+pipes, initialization, malformed JSON/UTF-8, draining an oversized line exceeding
+2 MiB, tool discovery, an invalid tool argument, a multilingual ping ID under
+ASCII Python output settings, and a zero exit status after stdin EOF. The test
+client bounds reads and writes and includes child stderr on failures.
+
+Run both checks with the installed wheel's Python interpreter, outside the checkout:
+
+```sh
+"$check_dir/venv/bin/python" "$repo/tests/mcp_stdio.py"
+"$check_dir/venv/bin/python" "$repo/tests/mcp_sandbox_diagnostic.py"
+```
+
+The variables and clean-install instructions are in [REVIEW.md](REVIEW.md). The
+first command is the required gate. The second changes scheduling and **does not
+replace or pass that gate**. The normal launch still times out at initialization
+in this sandbox. CI now also runs the unmodified subprocess test against the fresh
+wheel installation; its result remains pending while GitHub jobs cannot start.
 
 ## Material limitations
 

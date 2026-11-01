@@ -1,20 +1,21 @@
 # Review and continuation guide
 
-This guide is for maintainers, external reviewers, and coding agents reviewing
-[draft PR #1](https://github.com/trOnk12/noemu/pull/1). The repository and PR are
-public. Describe implemented behavior separately from verified behavior, and keep
-unfinished checks visible.
+This guide is for maintainers and coding agents continuing the foundation work.
+[PR #1](https://github.com/trOnk12/noemu/pull/1) was merged into `main` on
+2026-11-01. Follow-up validation fixes use `codex/noemu-validation-fixes`. Describe
+implemented behavior separately from verified behavior, and keep unfinished checks
+visible. A merged PR does not establish a passing validation gate.
 
 ## Scope and current state
 
-The PR implements part of milestone A: process and instance safety, versioned JSON
+The foundation implements part of milestone A: process and instance safety, versioned JSON
 transport, truthful CLI/MCP failures, structured observations, UI targeting changes,
 maintained fixtures, and package/driver CI definitions. It does not complete A or
 implement the supervisor, replay, Android verification, or experiment engine.
 
 Read [VALIDATION.md](VALIDATION.md), [PROTOCOL.md](PROTOCOL.md), and
 [ROADMAP.md](ROADMAP.md) before extending the implementation. The latest recorded
-local suite has 69 passing Python tests. Wheel smoke checks reused dependencies.
+local suite has 70 passing Python tests. Wheel smoke checks reused dependencies.
 Installed MCP stdio initialization timed out. Kotlin and live-driver validation
 have not passed. GitHub Actions jobs were blocked before execution by an account
 billing issue; this is not evidence for or against the code's runtime correctness.
@@ -22,7 +23,7 @@ billing issue; this is not evidence for or against the code's runtime correctnes
 Work from a normal clone and inspect the current remote branch before editing:
 
 ```sh
-git clone --branch codex/noemu-foundation https://github.com/trOnk12/noemu.git
+git clone --branch codex/noemu-validation-fixes https://github.com/trOnk12/noemu.git
 cd noemu
 git status --short --branch
 git log -5 --oneline
@@ -72,6 +73,8 @@ Do not turn unavailable prerequisites or cancelled jobs into skips or passes.
 1. **Truthful outcomes.** Confirm that driver failures, background crashes, partial
    execution, malformed replies, and timeouts cannot become successful CLI/MCP
    results. Check the driver parser as well as Python validation.
+   Run the focus-crash rotation regression on both fixture apps; a callback name
+   in a stack trace must never turn a thrown exception into success.
 2. **Target correctness.** Exercise stale references, duplicate labels, disabled
    controls, clipped or hidden content, dynamic View IDs, Compose semantics, and
    dialogs/popups. Confirm that missing resource names do not break observation
@@ -84,6 +87,9 @@ Do not turn unavailable prerequisites or cancelled jobs into skips or passes.
    its dependency versions, and inspect cancellation and large-message behavior.
    The in-process suite uses a test-only timer for this sandbox's worker wakeup
    restriction; it is not equivalent to a working installed transport.
+   `tests/mcp_sandbox_diagnostic.py` isolates that restriction with a timer-assisted
+   installed server. Its success never substitutes for `tests/mcp_stdio.py`, which
+   also verifies UTF-8 under ASCII output settings, oversized input, and stdin EOF.
 5. **Runtime changes.** Compile and run both fixtures before accepting Kotlin
    changes. Add a regression for each confirmed defect. Activity restoration must
    continue to state that application statics and singletons survive.
@@ -96,6 +102,7 @@ and update the PR and validation record with actual results.
 
 Milestone A requires passing Python, both driver fixtures, and clean package-install
 checks, with truthful failure paths. Advance to B only when that gate passes.
-Keep the PR in draft while these checks are unresolved. Before merging, update
-the README's draft/branch installation instructions to match the release state.
+Keep follow-up PRs in draft while these checks are unresolved. Ensure installation
+instructions match the branch being evaluated, and retain the experimental status
+until its documented validation gates pass.
 Publishing fixes to the review branch does not require merging or releasing them.

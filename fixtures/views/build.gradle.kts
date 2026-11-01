@@ -16,6 +16,7 @@ android {
         versionCode = 1
         versionName = "1"
     }
+    sourceSets["main"].java.srcDir("../shared-main")
     sourceSets["test"].java.srcDir("../shared-test")
 }
 kotlin {

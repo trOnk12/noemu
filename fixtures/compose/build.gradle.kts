@@ -18,6 +18,7 @@ android {
         versionName = "1"
     }
     buildFeatures { compose = true }
+    sourceSets["main"].java.srcDir("../shared-main")
     sourceSets["test"].java.srcDir("../shared-test")
 }
 kotlin {

@@ -631,12 +631,10 @@ class NoemuDriver {
             controller.configurationChange(app.resources.configuration)
             return
         }
-        // Robolectric's recreate() can fail after the new activity is up, when it reports window focus; anything
-        // else is the app's.
+        // Focus dispatch runs app callbacks too. A method name in the stack cannot
+        // distinguish an app crash from a runtime defect; both must remain failures.
         val old = controller.get()
-        runCatching { controller.recreate() }.onFailure { e ->
-            if (e !is NullPointerException || e.stackTrace.none { it.methodName == "windowFocusChanged" }) throw e
-        }
+        controller.recreate()
         val a = controller.get()
         if (!a.window.decorView.isAttachedToWindow) {
             Activity::class.java.getDeclaredMethod("makeVisible").apply { isAccessible = true }.invoke(a)
