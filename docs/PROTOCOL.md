@@ -16,8 +16,7 @@ driver parser rejects duplicate fields, comments, unquoted or single-quoted keys
 trailing documents, and nesting beyond 32 levels. Strings must be representable
 as UTF-8: unpaired Unicode surrogates fail rather than being replaced during
 transport. Valid emoji, non-Latin text, and escaped whitespace are preserved.
-These are protocol requirements; the validation record distinguishes Python
-checks from the still-pending Kotlin integration checks. The
+Python and Kotlin regressions cover these requirements. The
 server bounds incomplete request reads to ten seconds. The client applies an
 absolute deadline, rather than extending it every time a peer sends another byte.
 

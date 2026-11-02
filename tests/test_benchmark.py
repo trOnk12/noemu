@@ -4,10 +4,20 @@ import unittest
 from pathlib import Path
 from unittest import mock
 
-from bench import reproduce
+from bench import reproduce, agent_study
 
 
 class BenchmarkTest(unittest.TestCase):
+    def test_failed_study_action_cannot_return_expected_ui_text(self):
+        failure = subprocess.CompletedProcess([], 1, "", "cannot tap Chips: driver disconnected")
+        with mock.patch.object(agent_study.subprocess, "run", return_value=failure), self.assertRaises(RuntimeError):
+            agent_study.noemu(Path("."), "tap", "MY CART")
+
+    def test_study_does_not_use_stderr_as_ui_evidence(self):
+        output = subprocess.CompletedProcess([], 0, "cart is empty", "debug: Chips")
+        with mock.patch.object(agent_study.subprocess, "run", return_value=output):
+            self.assertEqual(agent_study.noemu(Path("."), "screen"), "cart is empty")
+
     def test_failed_rotation_cannot_be_counted_as_lost_text(self):
         outputs = [subprocess.CompletedProcess([], 0, "[0] field cupcake", ""),
                    subprocess.CompletedProcess([], 0, "[0] field cupcake", ""),

@@ -11,9 +11,27 @@ developers, conducting interviews, and contacting external reviewers are outside
 the authorized scope. Use maintained fixtures and reproducible checks to establish
 technical behavior; they do not establish adoption or willingness to pay.
 
-## Current gate: A — repair the foundation
+## Review the opportunity after each milestone
 
-The current change addresses unsafe instance paths and PID-only signaling,
+After an exit gate passes, identify the strongest useful workflow the verified
+capabilities now support. State what an agent can accomplish, show the executable
+evidence, and name the remaining limitation that most constrains its usefulness.
+Choose the next small, complete improvement against that limitation while keeping
+the milestone order. Do not count feature volume as progress or replace missing
+validation with a broader product claim.
+
+The target demonstration is a broken app and two candidate fixes: both appear to
+work during ordinary interaction, but only one preserves the required state after
+rotation. Build toward isolated revisions, replayable assertions, then equivalent
+Android checks. Each stage must work with the capabilities actually verified at
+that point. This demonstration measures the product's value more directly than
+another headless-control interface.
+
+## Completed gate: A — repair the foundation
+
+The [hardened gate](evidence/gate-hardening.md) passed three consecutive clean runs
+at `57e8756`; see [the evidence](evidence/milestone-a.md).
+This change addressed unsafe instance paths and PID-only signaling,
 misreported command failures, multiline transport, malformed MCP requests,
 ambiguous/stale/disabled targets, horizontal scrolling, benchmark false positives,
 and misleading process-death terminology. It adds maintained Views/Compose fixtures,
@@ -21,10 +39,8 @@ versioned JSON, bounded messages, and official MCP SDK handling.
 
 **Exit gate:** Python regressions, driver integration tests on both fixtures, and
 clean package-install tests pass. Known failures must not be reported as success.
-Until the driver and packaging gates run successfully, A is incomplete and the
-new runtime behavior remains unverified. See [VALIDATION.md](VALIDATION.md).
 
-## B — useful fleet and first external pilot
+## Current gate: B — useful fleet and first external pilot
 
 Implement one local supervisor per OS user, shared across projects and worktrees:
 private Unix socket, transactional SQLite metadata, immutable runtime generations,

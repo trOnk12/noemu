@@ -1,7 +1,24 @@
 # Does running the app make a coding agent better?
 
-**No, not on these tasks.** A coding agent in a sandbox without an emulator got all six right whether or not it could
-run the app with noemu.
+**Historical, provisional results.** The original scorer reported six passing tasks
+in each arm. A subsequent review found it ignored command exit codes and mixed
+stderr into UI observations. That could score a failed action as a pass. The raw
+records below are preserved, but have not been rescored with the repaired harness;
+they do not establish task accuracy or a measured benefit from NoEmu.
+
+The current scorer requires each operation to succeed before checking stdout.
+Version 2 score records distinguish `passed`, `failed`, `unsupported`, and
+`inconclusive`, preserve operation and cleanup errors, and keep timeout output.
+The `check` command exits nonzero if any check does not pass, or none ran.
+Its existing text assertions remain narrow heuristics: for example, T1 does not
+prove that a number belongs to the cart badge. Replayable semantic assertions and
+Android verification remain roadmap work.
+
+Install NoEmu into the Python environment used to run these scripts; they now use
+`python -m noemu`, including from app directories. An inherited `NOEMU_ID` is
+removed so a benchmark cannot redirect actions to a shell-selected fleet instance.
+No new app/model runs accompanied this harness repair. The `run` subcommand invokes
+Claude and is separate from the local regression tests.
 
 ## Setup
 
@@ -23,10 +40,11 @@ Six tasks on Google's Jetsnack sample (Jetpack Compose), each in a fresh copy of
 Both arms got the same prompt and `claude -p` (Claude Code, headless).
 
 Each result was scored by a **hidden check that runs the app with noemu** and looks for the asked-for behaviour. For
-example, T4's check opens MY CART and expects `$54.44`. The checks pass on the original code and fail on the injected
-bugs, which was verified before the runs.
+example, T4's check opens MY CART and expects `$54.44`. The original study reported
+checking the injected bug/fix pairs before running. That statement predates the
+scorer repair and has not been independently revalidated.
 
-## Results
+## Historical results reported by the original scorer
 
 | Arm | Passed | Cost | Time | Turns |
 | --- | --- | --- | --- | --- |
@@ -37,8 +55,9 @@ Raw results are in [`results/`](results/).
 
 ## What it means
 
-- **Accuracy:** for logic-level features and bug reports, the agent reasons its way to a correct change from the code
-  alone. noemu didn't raise accuracy. It cost about 15% more and took longer, since starting the app takes a minute.
+- **Accuracy:** the original scorer reported no difference. Its defects prevent
+  treating that as a validated comparison. The recorded cost and timing describe
+  those historical runs only.
 - **Evidence:** with noemu the agent *checked* its work in the running app. For example: "After I tapped 'Clear
   cart', the header read 'Order (0 items)'". Without it, the agent says so plainly: "I haven't seen 'cup' return
   Cupcake on screen." That evidence is what noemu adds. It doesn't change the code the agent writes.

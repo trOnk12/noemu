@@ -1,8 +1,23 @@
 # Does `noemu crawl` find real bugs?
 
+This is a historical record, not a current compatibility report. The corpus runner
+was subsequently found to ignore clone/crawl exit codes and infer startup success
+from text. Its repaired version checks every command, records explicit outcomes,
+retains failure and cleanup diagnostics, and exits nonzero for failed/incomplete
+runs. A version 2 `passed` record has `scope: command_execution`: it means the
+commands completed, not that the app is correct or that findings reproduce on Android.
+The historical findings below have not been rerun as part of that repair.
+
+Run `python bench/crawl_corpus.py OUT [STEPS]` with NoEmu installed in that Python
+environment. The runner records the cloned revision and no longer rewrites its
+Gradle wrapper. Use a fresh output root for a rerun: existing reports are retained,
+and a historical or failed report cannot turn a resumed run into a passing result.
+Existing workspaces are never erased automatically. All workspaces are retained
+for inspection; stop any remaining verified sessions before removing them manually.
+
 `noemu crawl` taps through an app on the JVM, typing into fields and submitting them. It rotates the device there and
-back on every new screen and after every action that changes one, and once per screen kills the app in the background
-and reopens it. It reports:
+back on every new screen and after every action that changes one, and once per
+screen recreates the top activity through its saved state. It reports:
 
 - **problems**: crashes, text the crawl typed that a rotation lost, and views stacked again on each rotation;
 - **worth a look**: anything else a rotation changed (a search bar or menu closing may be fine).
@@ -45,12 +60,13 @@ undoes it.
 | Fossify Calculator [#305](https://github.com/FossifyOrg/Calculator/pull/305) "Fix data lost during rotation" | put back | worth a look: "MainActivity: gone after rotating there and back: text 0." (the number being entered) | not reported |
 | Fossify Calendar `a8c2e66` "properly retain event fields on device rotation" | restore removed from today's `EventActivity` | crash: `UninitializedPropertyAccessException: lateinit property mEventStartDateTime` in `EventActivity.onSaveInstanceState`, in 2 of 2 fresh crawls | no crash |
 
-## The app killed in the background
+## Activity restoration (historically labelled background killing)
 
-Android kills apps in the background and later rebuilds them from their saved state alone: ViewModels and everything
-else in memory are gone. `noemu kill` (and the crawl, once per screen after an action changes it) does the same to the
-top activity: its saved state is parcelled and unparcelled as the system does, and its ViewModels are dropped.
-Singletons survive (one JVM), so this finds a subset of what a device would.
+`noemu restore-activity` (legacy alias `kill`) rebuilds the top activity through
+saved state and drops its ViewModels. It does not kill the JVM: application statics
+and singletons survive. The historical reports below used stronger wording that
+does not establish Android process-death or task-restoration behavior. Those
+semantics require the separate milestone H investigation.
 
 | App | Change | Crawl |
 | --- | --- | --- |

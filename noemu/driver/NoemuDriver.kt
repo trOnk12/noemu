@@ -45,7 +45,7 @@ import org.json.JSONArray
 @RunWith(AndroidJUnit4::class)
 @GraphicsMode(GraphicsMode.Mode.NATIVE)
 @LooperMode(LooperMode.Mode.PAUSED)
-@Config(sdk = [36], qualifiers = "w411dp-h891dp-xxhdpi", shadows = [ProvidersFirst::class, BindsOwnServices::class, AllFilesAccess::class])
+@Config(sdk = [36], qualifiers = "w411dp-h891dp-xxhdpi", shadows = [ProvidersFirst::class, BindsOwnServices::class, AllFilesAccess::class, RecreationFrame::class])
 class NoemuDriver {
     /** The back stack, as the system would keep it: Robolectric records startActivity() but doesn't launch. */
     private val stack = mutableListOf<ActivityController<out Activity>>()
@@ -68,7 +68,10 @@ class NoemuDriver {
     }
 
     @Test fun serve() {
-        val jvmStart = java.lang.management.ManagementFactory.getRuntimeMXBean().startTime
+        // By reflection: projects that compile tests against android.jar alone don't see the JDK's management API.
+        val mx = Class.forName("java.lang.management.ManagementFactory")
+        val runtime = mx.getMethod("getRuntimeMXBean").invoke(null)
+        val jvmStart = Class.forName("java.lang.management.RuntimeMXBean").getMethod("getStartTime").invoke(runtime) as Long
         println("noemu: android ready after ${System.currentTimeMillis() - jvmStart} ms")
         Thread.setDefaultUncaughtExceptionHandler { t, e ->
             System.err.println("noemu: thread ${t.name} crashed: $e")
@@ -141,7 +144,9 @@ class NoemuDriver {
                         synchronized(backgroundCrashes) { backgroundCrashes.firstOrNull() }?.let { throw it }
                         checkDeadline()
                     }
-                } catch (e: Throwable) {
+                } catch (thrown: Throwable) {
+                    // Compose actions and other app callbacks run through reflection; report what the app threw.
+                    val e = (thrown as? java.lang.reflect.InvocationTargetException)?.targetException ?: thrown
                     if (e is VirtualMachineError || e is ThreadDeath) throw e
                     System.err.println(e.stackTraceToString())
                     failure = when (e) {
@@ -634,12 +639,9 @@ class NoemuDriver {
         // Focus dispatch runs app callbacks too. A method name in the stack cannot
         // distinguish an app crash from a runtime defect; both must remain failures.
         val old = controller.get()
-        controller.recreate()
-        val a = controller.get()
-        if (!a.window.decorView.isAttachedToWindow) {
-            Activity::class.java.getDeclaredMethod("makeVisible").apply { isAccessible = true }.invoke(a)
-        }
-        if (old !== a) released(old, "rotating")
+        RecreationFrame.recreating = true
+        try { controller.recreate() } finally { RecreationFrame.recreating = false }
+        if (old !== controller.get()) released(old, "rotating")
     }
 
     /** Size in bytes of the last saved state handed to the system, as a parcel. */
@@ -954,7 +956,11 @@ object ComposeReader {
 
     fun read(view: View, found: MutableList<NoemuDriver.Element>): Boolean {
         if (!isComposeRoot(view)) return false
-        val root = call(call(view, "getSemanticsOwner"), "getRootSemanticsNode") ?: return false
+        val owner = call(view, "getSemanticsOwner") ?: return false
+        // Compose finishes pending layout in dispatchDraw, and nothing draws here unless a screenshot is taken: without
+        // this, positions stay as they were before the last scroll.
+        view.javaClass.getMethod("measureAndLayout", Boolean::class.javaPrimitiveType).invoke(view, true)
+        val root = call(owner, "getRootSemanticsNode") ?: return false
         node(root, found, view)
         return true
     }

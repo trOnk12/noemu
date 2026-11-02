@@ -14,11 +14,13 @@ It launches normally, saves a marker, then deliberately throws a
 `NullPointerException` when focus returns after saved-state recreation. The
 integration gate requires rotation to return `failed` with that crash message.
 This guards against treating a `windowFocusChanged` stack frame as permission to
-suppress an exception. This fixture and driver change still need execution with
-the toolchain below; source inspection is not a passing Android runtime check.
+suppress an exception. `EndlessAnimationActivity` runs an infinite animator, so a
+rotation that waits for frames without a bound hangs instead of passing.
 
-Use JDK 21, Android SDK platform 35 and build tools 35.0.0, and Gradle 8.11.1.
-Generate the standard Gradle wrapper once (generated wrapper files are ignored):
+Use JDK 21, Android SDK platform 35 and build tools 35.0.0, and Gradle 8.11.1;
+`scripts/bootstrap-toolchain.sh` provisions them on Linux x86-64 without root, and
+`scripts/gate.sh` runs every check below from a fresh clone. To run them by hand,
+generate the standard Gradle wrapper once (generated wrapper files are ignored):
 
 ```sh
 gradle -p fixtures wrapper --gradle-version 8.11.1

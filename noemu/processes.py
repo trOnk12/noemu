@@ -14,9 +14,21 @@ class ProcessIdentityError(RuntimeError):
     pass
 
 
+def start_ticks(pid: int) -> int | None:
+    """Linux: the kernel's start time in clock ticks since boot. It never changes for a process.
+
+    psutil's create_time() adds this to the boot time in /proc/stat, which is wall-clock time minus uptime: it moves
+    when the clock is stepped or slewed (NTP, a VM syncing with its host), and one process then reads differently.
+    """
+    try:
+        return int(Path(f"/proc/{pid}/stat").read_text().rsplit(")", 1)[1].split()[19])
+    except (OSError, ValueError, IndexError):
+        return None
+
+
 def remember(directory: Path, pid: int) -> None:
     process = psutil.Process(pid)
-    identity = {"pid": pid, "created": process.create_time(), "uid": process.uids().real}
+    identity = {"pid": pid, "created": process.create_time(), "start_ticks": start_ticks(pid), "uid": process.uids().real}
     temporary = directory / "process.json.tmp"
     temporary.write_text(json.dumps(identity))
     temporary.replace(directory / "process.json")
@@ -32,7 +44,9 @@ def verified(directory: Path) -> psutil.Process:
         if int((directory / "pid").read_text()) != pid:
             raise ValueError("PID file changed")
         process = psutil.Process(pid)
-        if process.create_time() != identity["created"] or process.uids().real != identity["uid"]:
+        ticks = identity.get("start_ticks")
+        same_start = start_ticks(pid) == ticks if ticks is not None else process.create_time() == identity["created"]
+        if not same_start or process.uids().real != identity["uid"]:
             raise ValueError("process identity changed")
         if process.status() == psutil.STATUS_ZOMBIE:
             raise psutil.NoSuchProcess(pid)

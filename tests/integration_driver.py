@@ -125,6 +125,14 @@ class DriverIntegrationTest(unittest.TestCase):
         self.assertEqual(result["error"]["code"], "execution_error", result)
         self.assertIn("fixture focus crash after recreation", result["error"]["message"])
 
+    def test_rotation_finishes_while_an_animation_never_ends(self):
+        opened = self.act("open", "dev.noemu.fixture.EndlessAnimationActivity")
+        self.assertEqual(opened["status"], "passed", opened)
+        result = self.act("rotate", "2")
+        self.assertEqual(result["status"], "passed", result)
+        self.assertTrue(any(e["label"] == "Endless animation fixture ready"
+                            for e in result["observation"]["elements"]), result)
+
     def test_crash_is_a_cli_failure(self):
         result = subprocess.run([sys.executable, "-m", "noemu", "--id", self.instance, "tap", "Crash"],
                                 capture_output=True, text=True, timeout=120)

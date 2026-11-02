@@ -11,12 +11,13 @@ The goal is to make Android behavior as easy to explore, reproduce, and compare
 as source code. A successful JVM operation establishes what happened in that
 simulation. Verification on Android is a separate, planned capability.
 
-> **Experimental — validation is incomplete.**
-> Milestone A is incomplete. Python regressions pass locally; Kotlin compilation
-> and live-driver checks remain unverified, and the installed MCP stdio check
-> timed out in the local test environment. The shared supervisor, immutable builds,
-> replay engine, and Android verification adapter are planned. Read the
-> [validation record](docs/VALIDATION.md) before relying on verification results.
+> **Experimental.** Milestone A's runtime gate passed on Linux (WSL2): Python
+> regressions, a clean wheel installation with the MCP stdio check, Kotlin compilation,
+> and live driver tests on both fixtures. This shows that the driver does what its
+> tests assert on the JVM. It does not show that behavior matches Android; that
+> comparison is milestone C. macOS has not been validated. The shared supervisor,
+> immutable builds, replay engine, and Android verification adapter are planned. Read
+> the [validation record](docs/VALIDATION.md) before relying on verification results.
 
 ## Implemented interfaces
 
@@ -33,8 +34,9 @@ Android compatibility; the fixture and platform checks are tracked separately.
 
 The Android target of a Kotlin Multiplatform project can be used when its app
 module applies `com.android.application`. Other KMP targets are outside scope.
-Linux and macOS are the intended hosts. Local validation coverage is recorded
-separately from platform support goals.
+Linux and macOS are the intended hosts; only Linux has run the full gate. Native
+Windows is not a supported host. Validation coverage is recorded separately from
+platform support goals.
 
 ## Requirements
 
@@ -206,20 +208,29 @@ Start with the [review and continuation guide](docs/REVIEW.md) for the current
 scope, exact checks, and open review questions.
 
 ```sh
-python -m pip install -e . build
-python -m unittest discover -s tests -t . -v
-python -m build
+scripts/bootstrap-toolchain.sh   # JDK 21, Gradle 8.11.1, Android SDK, in ~/tools/noemu
+. ~/tools/noemu/env.sh
+scripts/gate.sh                  # every check, from a fresh clone of HEAD
 ```
 
 The [Views and Compose fixtures](fixtures/README.md) contain both correct and
 intentionally broken behaviors. Their integration runner requires the Android
-build toolchain and fails when prerequisites are missing. CI defines Python checks
-on Linux/macOS, a clean wheel installation, Kotlin protocol checks, and live driver
-checks for both fixtures. A configured job is not evidence of a passing run.
+build toolchain and fails when prerequisites are missing. `scripts/gate.sh` runs the
+Python suite, a clean wheel installation, Kotlin protocol checks, and live driver
+checks for both fixtures. CI defines the same checks, but a configured job is not
+evidence of a passing run.
+
+Validation commands have deadlines: 15 minutes per check, 5 minutes for setup and
+environment discovery, and 30 seconds per artifact capture. A timeout fails the
+check, keeps its diagnostics, and allows independent checks to continue. See the
+[review guide](docs/REVIEW.md#checks-to-run) for configuration and cleanup limits.
 
 Historical experiments live in [bench/](bench/). Their timings and findings apply
 to those recorded revisions and conditions. They do not establish current p95
 performance, Android conformance, or the roadmap's 1,000-cycle reliability target.
+The study and corpus runners now reject failed commands as evidence; their older
+results have not been revalidated with these fixes. See the
+[benchmark validation record](docs/evidence/benchmark-outcomes.md).
 
 ## Architecture and direction
 
