@@ -11,9 +11,10 @@ developers, conducting interviews, and contacting external reviewers are outside
 the authorized scope. Use maintained fixtures and reproducible checks to establish
 technical behavior; they do not establish adoption or willingness to pay.
 
-## Current gate: A — repair the foundation
+## Completed gate: A — repair the foundation
 
-The current change addresses unsafe instance paths and PID-only signaling,
+Passed three consecutive clean runs; see [the evidence](evidence/milestone-a.md).
+This change addressed unsafe instance paths and PID-only signaling,
 misreported command failures, multiline transport, malformed MCP requests,
 ambiguous/stale/disabled targets, horizontal scrolling, benchmark false positives,
 and misleading process-death terminology. It adds maintained Views/Compose fixtures,
@@ -21,10 +22,8 @@ versioned JSON, bounded messages, and official MCP SDK handling.
 
 **Exit gate:** Python regressions, driver integration tests on both fixtures, and
 clean package-install tests pass. Known failures must not be reported as success.
-Until the driver and packaging gates run successfully, A is incomplete and the
-new runtime behavior remains unverified. See [VALIDATION.md](VALIDATION.md).
 
-## B — useful fleet and first external pilot
+## Current gate: B — useful fleet and first external pilot
 
 Implement one local supervisor per OS user, shared across projects and worktrees:
 private Unix socket, transactional SQLite metadata, immutable runtime generations,

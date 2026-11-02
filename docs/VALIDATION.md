@@ -21,25 +21,25 @@ dependency-resolution test. No Android-conformance or performance result is clai
 
 | Check | Status |
 | --- | --- |
-| Existing Python regressions and new safety/protocol/MCP/benchmark tests | Passed locally (70 tests) |
-| Wheel build and installed-package resource smoke check | Passed locally; existing dependencies reused |
-| Installed MCP stdio integration | Failed locally: initialization response timed out after 10 seconds in the restricted sandbox |
-| Fully isolated install with freshly resolved dependencies | Pending CI |
-| Kotlin compilation and protocol contracts | Pending CI; no local Gradle/Android SDK |
-| Live Views and Compose driver checks | Pending CI; no local Gradle/Android SDK |
-| Milestone A | Incomplete until required checks pass and failures are resolved |
-| Milestones B–H | Not started; gated by A |
+| Python regressions | Passed (70 tests); 3 of 3 clean runs at `62efbba` |
+| Clean wheel installation with fresh dependencies | Passed; 3 of 3 |
+| Installed MCP stdio integration (`tests/mcp_stdio.py`) | Passed; 3 of 3 |
+| Kotlin compilation and ProtocolTest, both fixtures | Passed (5 tests each); 3 of 3 |
+| Live Views and Compose driver checks | Passed (10 tests each); 3 of 3 |
+| Milestone A | **Gate passed**; see [the evidence](evidence/milestone-a.md) |
+| macOS | Not run |
+| GitHub Actions | Not run; jobs cannot start (account billing lock) |
+| Android conformance | Not measured; milestone C |
+| Milestone B | In progress |
+| Milestones C–H | Not started |
 
-## Published branch and CI blocker
+Environment: WSL2 Ubuntu 22.04 on Linux 6.6.87 (6 vCPU, 7.7 GiB), Python 3.10.12,
+Temurin OpenJDK 21.0.13, Gradle 8.11.1, Android platform 35, build tools 35.0.0, mcp
+1.30.0, psutil 7.2.2. Command: `scripts/gate.sh`.
 
-The foundation in [PR #1](https://github.com/trOnk12/noemu/pull/1) was merged into
-`main` at `63fbaccf6699d7cf0691b57460eb0dfce0e81085` on 2026-11-01, preserving
-upstream history and the existing demo GIF. The merge did not pass or waive the
-unfinished validation gates. Subsequent fixes use `codex/noemu-validation-fixes`.
-GitHub Actions [run 41296966023](https://github.com/trOnk12/noemu/actions/runs/41296966023)
-did not start its test jobs: GitHub reports that the account is locked due to a
-billing issue. Cancelled matrix jobs are not passing checks. This prevents the
-required Kotlin, live-driver, and isolated-install gate from establishing an outcome.
+The earlier `Installed MCP stdio` timeouts below came from a sandbox that blocks
+`socketpair`. The unmodified test passes on a normal Linux kernel. Entries below this
+point are the historical record of work done before these gates could run.
 
 ## Follow-up regressions
 
@@ -80,15 +80,13 @@ required Kotlin, live-driver, and isolated-install gate from establishing an out
 The driver request parser now uses strict `JsonReader` parsing before command
 validation, with duplicate-field checks, complete-document consumption, a nesting
 limit, and Unicode validation. Kotlin regressions cover these cases and preserve
-integer types for protocol fields. **The parser change and Kotlin regressions are
-unverified:** the local fixture gate still stops at its missing-wrapper prerequisite.
+integer types for protocol fields. ProtocolTest has since run; see Gate status.
 
 The driver observation code also now catches only `Resources.NotFoundException`
 when a View ID has no compiled resource name. Generated IDs retain their observation
 references and receive no invented resource selector. The Views fixture uses both
 generated and resource IDs, with an integration regression covering observation and
-typing. **This Kotlin change is unverified.** The attempted fixture run failed its
-prerequisite check (`fixture wrapper missing`) and executed zero driver tests.
+typing. The fixture gate has since passed.
 
 ### Rotation exception suppression
 
@@ -101,12 +99,26 @@ and focus dispatch reaches application callbacks.
 
 The driver now lets this exception reach its ordinary failure result. Both fixture
 apps include `FocusCrashActivity`, which succeeds at launch and deliberately throws
-on focus after recreation. The integration regression requires the precise fixture
-crash to remain visible as `execution_error`, rather than accepting any failed
-operation. **This Kotlin change and regression have not run.** The new local gate
-attempt again failed at the missing-wrapper prerequisite and ran zero driver tests.
-If Robolectric itself throws during focus dispatch, rotation will now correctly
-fail too; compatibility work must reproduce and fix that defect instead of hiding it.
+on focus after recreation.
+
+The first live run confirmed that the suppression was hiding a defect. **Every**
+recreating rotation failed with a `NullPointerException` at
+`ActivityController.windowFocusChanged(ActivityController.java:257)`. The cause is in
+the interaction between the driver and Robolectric, not in the app: the driver pauses
+the Choreographer, so a frame runs only when the clock advances, and attaching a new
+window takes a frame. `recreate()` calls `visible()` and then `windowFocusChanged(true)`
+with nothing advancing the clock in between, so `getViewRootImpl()` is null. Launch
+never hit this because `setup()` does not deliver focus. The old suppression also
+skipped focus delivery, `topActivityResumed(true)`, and restoration of the original
+lifecycle state on every rotation.
+
+`RecreationFrame` now gives the window exactly one frame during recreation. Unpausing
+was rejected because `recreate()` idles the looper, and an unpaused Choreographer turns
+an endless animation into an endless loop. `configurationChange` was rejected because
+its source documents that retained fragments are not retained. `EndlessAnimationActivity`
+guards the bound. `FocusCrashActivity` now reports its own exception, which proves that
+focus reaches the app after recreation. This shadow is a workaround; milestone D
+reviews it against milestone C's corpus.
 
 The updated wheel was installed into a separate virtual environment reusing
 available dependencies, and its CLI, imports, and packaged resources passed checks
@@ -128,19 +140,6 @@ pipes, initialization, malformed JSON/UTF-8, draining an oversized line exceedin
 ASCII Python output settings, and a zero exit status after stdin EOF. The test
 client bounds reads and writes and includes child stderr on failures.
 
-Run both checks with the installed wheel's Python interpreter, outside the checkout:
-
-```sh
-"$check_dir/venv/bin/python" "$repo/tests/mcp_stdio.py"
-"$check_dir/venv/bin/python" "$repo/tests/mcp_sandbox_diagnostic.py"
-```
-
-The variables and clean-install instructions are in [REVIEW.md](REVIEW.md). The
-first command is the required gate. The second changes scheduling and **does not
-replace or pass that gate**. The normal launch still times out at initialization
-in this sandbox. CI now also runs the unmodified subprocess test against the fresh
-wheel installation; its result remains pending while GitHub jobs cannot start.
-
 ## Material limitations
 
 - The JSON protocol changes both client and driver. Old instances must be rebuilt
@@ -152,6 +151,8 @@ wheel installation; its result remains pending while GitHub jobs cannot start.
   scheduling, leases, immutable builds, recovery, and bounded fleet retention are B.
 - Driver deadlines are cooperative. Uninterruptible app code may continue after a
   client timeout; the outcome is reported as inconclusive, and retries are not automatic.
+- Activities receive window focus after recreation but not at first launch, because
+  `setup()` does not deliver it. This is a known difference from Android.
 - UI actions use semantics rather than physical hit testing. Occlusion, lifecycle,
   rendering, permission, and Android-version conformance require C's independent
   Android corpus. Kotlin modifications must pass the fixture gate before release.
