@@ -18,8 +18,6 @@ simulation. Verification on Android is a separate, planned capability.
 > comparison is milestone C. macOS has not been validated. The shared supervisor,
 > immutable builds, replay engine, and Android verification adapter are planned. Read
 > the [validation record](docs/VALIDATION.md) before relying on verification results.
-> Those full runs tested `62efbba`; the subsequently hardened gate still needs its
-> full Android-toolchain rerun.
 
 ## Implemented interfaces
 

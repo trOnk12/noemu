@@ -19,26 +19,22 @@ dependency-resolution test. No Android-conformance or performance result is clai
 
 ## Gate status
 
-The table records the last full runtime runs at `62efbba`. The subsequent
-[gate hardening](evidence/gate-hardening.md) is covered by Python and shell
-control-flow regressions; a full run with Gradle/Android SDK remains pending.
-The latest local Python run passed **107 tests in 29.784 seconds**, including gate
-deadlines, real child-process cancellation, and
-[benchmark outcome regressions](evidence/benchmark-outcomes.md). This does not
-replace the full runtime runs below.
+The hardened gate passed three consecutive clean runs at `57e8756`; see
+[the evidence](evidence/milestone-a.md). Its first run, at `53f93d4`, failed and
+exposed a process-identity defect that `57e8756` fixes.
 
 | Check | Status |
 | --- | --- |
-| Python regressions | Passed (70 tests); 3 of 3 clean runs at `62efbba` |
+| Python regressions | Passed (109 tests); 3 of 3 at `57e8756` |
 | Clean wheel installation with fresh dependencies | Passed; 3 of 3 |
 | Installed MCP stdio integration (`tests/mcp_stdio.py`) | Passed; 3 of 3 |
 | Kotlin compilation and ProtocolTest, both fixtures | Passed (5 tests each); 3 of 3 |
 | Live Views and Compose driver checks | Passed (10 tests each); 3 of 3 |
-| Milestone A | **Gate passed**; see [the evidence](evidence/milestone-a.md) |
+| Milestone A | **Gate passed** |
 | macOS | Not run |
 | GitHub Actions | Not run; jobs cannot start (account billing lock) |
 | Android conformance | Not measured; milestone C |
-| Milestone B | Next; awaiting the hardened gate's full rerun |
+| Milestone B | In progress |
 | Milestones C–H | Not started |
 
 Environment: WSL2 Ubuntu 22.04 on Linux 6.6.87 (6 vCPU, 7.7 GiB), Python 3.10.12,

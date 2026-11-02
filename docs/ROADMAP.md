@@ -27,11 +27,10 @@ Android checks. Each stage must work with the capabilities actually verified at
 that point. This demonstration measures the product's value more directly than
 another headless-control interface.
 
-## A — runtime pass recorded; hardened gate rerun pending
+## Completed gate: A — repair the foundation
 
-Passed three consecutive clean runs; see [the evidence](evidence/milestone-a.md).
-Those runs tested `62efbba`. Finish the full rerun of the
-[hardened gate](evidence/gate-hardening.md) before advancing to B.
+The [hardened gate](evidence/gate-hardening.md) passed three consecutive clean runs
+at `57e8756`; see [the evidence](evidence/milestone-a.md).
 This change addressed unsafe instance paths and PID-only signaling,
 misreported command failures, multiline transport, malformed MCP requests,
 ambiguous/stale/disabled targets, horizontal scrolling, benchmark false positives,
@@ -41,7 +40,7 @@ versioned JSON, bounded messages, and official MCP SDK handling.
 **Exit gate:** Python regressions, driver integration tests on both fixtures, and
 clean package-install tests pass. Known failures must not be reported as success.
 
-## Next gate: B — useful fleet and first external pilot
+## Current gate: B — useful fleet and first external pilot
 
 Implement one local supervisor per OS user, shared across projects and worktrees:
 private Unix socket, transactional SQLite metadata, immutable runtime generations,

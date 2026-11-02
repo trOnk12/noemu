@@ -6,9 +6,9 @@ visible. A merged PR does not establish a passing validation gate.
 
 ## Scope and current state
 
-Milestone A's runtime gate passed at `62efbba`; see [its evidence](evidence/milestone-a.md).
-The gate itself has since been hardened; [that follow-up](evidence/gate-hardening.md)
-has Python/control-flow coverage, with a full Android-toolchain run still pending.
+Milestone A's hardened gate passed three clean runs at `57e8756`; see
+[its evidence](evidence/milestone-a.md). Run the gate from a checkout that stays on
+the revision under test: `scripts/gate.sh` itself comes from the working tree.
 It covers process and instance safety, versioned JSON transport, truthful CLI/MCP
 failures, structured observations, UI targeting, and the maintained fixtures. The
 gate establishes JVM behavior on Linux, not Android conformance. macOS has not run.

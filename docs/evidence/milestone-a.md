@@ -1,17 +1,52 @@
 # Milestone A evidence
 
-**Result: the exit gate passed three consecutive runs** at
-[`62efbba`](https://github.com/trOnk12/noemu/commit/62efbba3e3b0643d12e57e10dbdb2717c3881254).
-Each run cloned that commit and resolved dependencies afresh.
-
-This is the historical runtime result for that commit. The later
-[gate hardening](gate-hardening.md) fixes revision handling and evidence retention;
-its full Android-toolchain rerun is still pending. Its control-flow tests do not
-replace these runtime checks.
+**Result: the hardened exit gate passed three consecutive runs** at
+[`57e8756`](https://github.com/trOnk12/noemu/commit/57e8756a7994650a26dda06e8debd7eabc953990).
+Each run cloned that commit, verified the checked-out revision, and resolved
+dependencies afresh.
 
 | Check | Run 1 | Run 2 | Run 3 |
 | --- | --- | --- | --- |
-| Python suite (70 tests) | pass | pass | pass |
+| Python suite (109 tests) | pass | pass | pass |
+| Wheel build and clean installation | pass | pass | pass |
+| Installed `tests/mcp_stdio.py`, outside the checkout | pass | pass | pass |
+| ProtocolTest, Views (5 tests) | pass, 21 s | pass, 20 s | pass, 20 s |
+| ProtocolTest, Compose (5 tests) | pass, 25 s | pass, 24 s | pass, 24 s |
+| Live driver, Views (10 tests) | pass, 57 s | pass, 58 s | pass, 58 s |
+| Live driver, Compose (10 tests) | pass, 62 s | pass, 63 s | pass, 63 s |
+
+Same host and versions as below; mcp 1.30.0 and psutil 7.2.2 were freshly installed.
+
+### The hardened gate found a process-identity defect
+
+The first full run of the [hardened gate](gate-hardening.md), at
+[`53f93d4`](https://github.com/trOnk12/noemu/commit/53f93d4e826508e72c6dc32b61f9cd41f25cff87),
+**failed**: three live driver tests reported `process identity changed` for instances
+that were running. The recorded identities showed 3 of 20 instances affected.
+Identity compared psutil's `create_time()` exactly. On Linux, psutil computes it from
+the boot time in `/proc/stat`, which is wall-clock time minus uptime. A clock step or
+slew (NTP, or a VM syncing with its host) moves that value, so one process can read
+differently. A flip was not caught directly in a short sample, so this cause is
+inferred from the mechanism and the failing records rather than observed.
+
+`57e8756` identifies processes on Linux by the kernel's start ticks
+(`/proc/<pid>/stat`, field 22). These never change for a process. Records without
+them still require an identical creation time. The regressions failed before the fix
+and pass after it, and the three runs above passed.
+
+During this work, two gate runs were invalid because the repository's working tree
+switched branches between runs, so `scripts/gate.sh` itself came from another
+revision. Those runs are not counted. The three runs above used a dedicated checkout
+of `57e8756`. **Run the gate from a checkout that stays on the revision under test.**
+
+## Earlier runs at `62efbba`
+
+Before the gate hardening, the same checks passed three consecutive runs at
+[`62efbba`](https://github.com/trOnk12/noemu/commit/62efbba3e3b0643d12e57e10dbdb2717c3881254).
+
+| Check | Run 1 | Run 2 | Run 3 |
+| --- | --- | --- | --- |
+| Python suite (70 tests at that commit) | pass | pass | pass |
 | Wheel build and clean installation | pass | pass | pass |
 | Installed `tests/mcp_stdio.py`, outside the checkout | pass | pass | pass |
 | ProtocolTest, Views (5 tests) | pass, 33 s | pass, 22 s | pass, 25 s |
