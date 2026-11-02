@@ -11,6 +11,22 @@ developers, conducting interviews, and contacting external reviewers are outside
 the authorized scope. Use maintained fixtures and reproducible checks to establish
 technical behavior; they do not establish adoption or willingness to pay.
 
+## Review the opportunity after each milestone
+
+After an exit gate passes, identify the strongest useful workflow the verified
+capabilities now support. State what an agent can accomplish, show the executable
+evidence, and name the remaining limitation that most constrains its usefulness.
+Choose the next small, complete improvement against that limitation while keeping
+the milestone order. Do not count feature volume as progress or replace missing
+validation with a broader product claim.
+
+The target demonstration is a broken app and two candidate fixes: both appear to
+work during ordinary interaction, but only one preserves the required state after
+rotation. Build toward isolated revisions, replayable assertions, then equivalent
+Android checks. Each stage must work with the capabilities actually verified at
+that point. This demonstration measures the product's value more directly than
+another headless-control interface.
+
 ## A — runtime pass recorded; hardened gate rerun pending
 
 Passed three consecutive clean runs; see [the evidence](evidence/milestone-a.md).

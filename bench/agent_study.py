@@ -10,14 +10,19 @@ import json
 import os
 import re
 import shutil
+import shlex
 import subprocess
 import sys
 import time
 from pathlib import Path
 
+if __package__:
+    from .commands import NOEMU, CommandError, app_environment, run_checked
+else:
+    from commands import NOEMU, CommandError, app_environment, run_checked
+
 # A checkout of github.com/android/compose-samples.
 SAMPLES = Path(os.environ.get("COMPOSE_SAMPLES", "compose-samples"))
-NOEMU = Path(__file__).resolve().parents[1] / "noemu" / "cli.py"
 SRC = "app/src/main/java/com/example/jetsnack"
 
 TASKS = {
@@ -69,17 +74,18 @@ def setup(root: Path) -> None:
 
 
 def run(root: Path) -> None:
+    root = root.resolve()
     out = root / "results.jsonl"
     done = {(r["arm"], r["task"]) for r in map(json.loads, out.read_text().splitlines())} if out.exists() else set()
     bin_dir = root / "bin"
     bin_dir.mkdir(exist_ok=True)
-    (bin_dir / "noemu").write_text(f"#!/bin/sh\nexec python3 {NOEMU} \"$@\"\n")
+    (bin_dir / "noemu").write_text(f'#!/bin/sh\nexec {shlex.join(NOEMU)} "$@"\n')
     (bin_dir / "noemu").chmod(0o755)
     for task in TASKS:
         for arm in ("A", "B"):
             if (arm, task) in done:
                 continue
-            env = dict(os.environ)  # ANDROID_HOME, JAVA_HOME and NOEMU_GRADLE_ARGS come from the caller
+            env = app_environment()  # ANDROID_HOME, JAVA_HOME and NOEMU_GRADLE_ARGS come from the caller
             if arm == "A":
                 env["PATH"] = f"{bin_dir}:{env['PATH']}"
             prompt = BASE.format(ask=TASKS[task]["ask"]) + (TOOL if arm == "A" else "")
@@ -88,7 +94,7 @@ def run(root: Path) -> None:
             p = subprocess.run(["timeout", "3000", "claude", "-p", prompt, "--output-format", "json",
                                 "--allowedTools", tools, "--max-turns", "80"],
                                cwd=root / arm / task, capture_output=True, text=True, env=env)
-            subprocess.run(["python3", str(NOEMU), "stop"], cwd=root / arm / task, capture_output=True)
+            subprocess.run([*NOEMU, "stop"], cwd=root / arm / task, capture_output=True, env=app_environment(), timeout=120)
             try:
                 res = json.loads(p.stdout)
             except ValueError:
@@ -103,57 +109,74 @@ def run(root: Path) -> None:
             print(arm, task, row["seconds"], row["cost_usd"], row["turns"], str(row["answer"])[-200:].replace("\n", " "), flush=True)
 
 
-def noemu(d: Path, *args: str) -> str:
-    env = dict(os.environ)
-    p = subprocess.run(["python3", str(NOEMU), *args], cwd=d, capture_output=True, text=True, env=env, timeout=2400)
-    return p.stdout + p.stderr
+def noemu(d: Path, *args: str, timeout: int = 2400) -> str:
+    result = run_checked([*NOEMU, *args], cwd=d, env=app_environment(), timeout=timeout)
+    return result.stdout
 
 
-def hidden_check(task: str, d: Path) -> tuple[bool, str]:
-    """The behaviour the task asks for, observed in the running app."""
-    first = noemu(d, "start")
-    if "app running" not in first:
-        return False, "does not build or start: " + first[-300:]
+def _assert_task(task: str, d: Path, first: str) -> tuple[bool, str]:
+    if task == "T1":
+        ok = re.search(r"\b6\b", first) is not None and "MY CART" in first
+        return ok, "home screen shows 6 near MY CART" if ok else "no 6 badge on home screen"
+    if task == "T2":
+        noemu(d, "tap", "MY CART")
+        s = noemu(d, "tap", "Clear cart")
+        ok = "Gingerbread" not in s and "Ice Cream Sandwich" not in s and "tapped" in s
+        return ok, s[:300]
+    if task == "T3":
+        noemu(d, "tap", "SEARCH")
+        s = noemu(d, "type", "2", "cup")
+        s = noemu(d, "wait", "1500")
+        return "Cupcake" in s, s[:300]
+    if task == "T4":
+        s = noemu(d, "tap", "MY CART")
+        return "$54.44" in s, re.findall(r"\$[\d.]+", s)[:8].__str__()
+    if task == "T5":
+        noemu(d, "tap", "Chips")
+        noemu(d, "tap", "ADD TO CART")
+        noemu(d, "back")
+        s = noemu(d, "tap", "MY CART")
+        return "Chips" in s, s[:400]
+    if task == "T6":
+        s = noemu(d, "tap", "Organic")
+        return bool(re.search(r"Organic \[(on|selected)\]", s)), s[:300]
+
+
+def hidden_check(task: str, d: Path) -> dict:
+    """Score assertions only after successful commands; preserve cleanup failures."""
+    if task not in TASKS:
+        return {"status": "unsupported", "why": "unknown task"}
+    result = {"status": "inconclusive", "why": "check did not finish"}
     try:
-        if task == "T1":
-            ok = re.search(r"\b6\b", first) is not None and "MY CART" in first
-            return ok, "home screen shows 6 near MY CART" if ok else "no 6 badge on home screen"
-        if task == "T2":
-            noemu(d, "tap", "MY CART")
-            s = noemu(d, "tap", "Clear cart")
-            ok = "Gingerbread" not in s and "Ice Cream Sandwich" not in s and "tapped" in s
-            return ok, s[:300]
-        if task == "T3":
-            noemu(d, "tap", "SEARCH")
-            s = noemu(d, "type", "2", "cup")
-            s = noemu(d, "wait", "1500")
-            return "Cupcake" in s, s[:300]
-        if task == "T4":
-            s = noemu(d, "tap", "MY CART")
-            return "$54.44" in s, re.findall(r"\$[\d.]+", s)[:8].__str__()
-        if task == "T5":
-            noemu(d, "tap", "Chips")
-            noemu(d, "tap", "ADD TO CART")
-            noemu(d, "back")
-            s = noemu(d, "tap", "MY CART")
-            return "Chips" in s, s[:400]
-        if task == "T6":
-            s = noemu(d, "tap", "Organic")
-            return bool(re.search(r"Organic \[(on|selected)\]", s)), s[:300]
+        first = noemu(d, "start")
+        ok, why = _assert_task(task, d, first)
+        result = {"status": "passed" if ok else "failed", "why": why, "kind": "assertion"}
+    except CommandError as error:
+        result = {"status": error.status, "why": str(error), "kind": "operation", "error": error.record}
     finally:
-        noemu(d, "stop")
-    return False, "unknown task"
+        try:
+            noemu(d, "stop", timeout=120)
+        except CommandError as error:
+            result["cleanup_error"] = error.record
+            if result["status"] == "passed":
+                result["assertion_status"] = "passed"
+                result["status"] = "inconclusive"
+                result["why"] = "assertion passed but session cleanup did not complete"
+    return result
 
 
-def check(root: Path) -> None:
+def check(root: Path) -> int:
     out = root / "scores.jsonl"
     rows = [json.loads(l) for l in (root / "results.jsonl").read_text().splitlines()]
+    failed = not rows
     for r in rows:
-        ok, why = hidden_check(r["task"], root / r["arm"] / r["task"])
+        result = hidden_check(r["task"], root / r["arm"] / r["task"])
+        failed |= result["status"] != "passed"
         with out.open("a") as f:
-            f.write(json.dumps({"arm": r["arm"], "task": r["task"], "pass": ok, "why": why}) + "\n")
-        print(r["arm"], r["task"], ok, why[:120].replace("\n", " "), flush=True)
+            f.write(json.dumps({"version": 2, "arm": r["arm"], "task": r["task"], "pass": result["status"] == "passed", **result}) + "\n")
+        print(r["arm"], r["task"], result["status"], result["why"][:120].replace("\n", " "), flush=True)
+    return int(failed)
 
 
 if __name__ == "__main__":
-    {"setup": setup, "run": run, "check": check}[sys.argv[1]](Path(sys.argv[2]))
+    sys.exit({"setup": setup, "run": run, "check": check}[sys.argv[1]](Path(sys.argv[2])))

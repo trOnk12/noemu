@@ -22,9 +22,10 @@ dependency-resolution test. No Android-conformance or performance result is clai
 The table records the last full runtime runs at `62efbba`. The subsequent
 [gate hardening](evidence/gate-hardening.md) is covered by Python and shell
 control-flow regressions; a full run with Gradle/Android SDK remains pending.
-The latest local Python run passed **89 tests in 33.327 seconds**, including gate
-deadlines and real child-process cancellation. This does not replace the full
-runtime runs below.
+The latest local Python run passed **107 tests in 29.784 seconds**, including gate
+deadlines, real child-process cancellation, and
+[benchmark outcome regressions](evidence/benchmark-outcomes.md). This does not
+replace the full runtime runs below.
 
 | Check | Status |
 | --- | --- |

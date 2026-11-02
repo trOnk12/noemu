@@ -230,6 +230,9 @@ check, keeps its diagnostics, and allows independent checks to continue. See the
 Historical experiments live in [bench/](bench/). Their timings and findings apply
 to those recorded revisions and conditions. They do not establish current p95
 performance, Android conformance, or the roadmap's 1,000-cycle reliability target.
+The study and corpus runners now reject failed commands as evidence; their older
+results have not been revalidated with these fixes. See the
+[benchmark validation record](docs/evidence/benchmark-outcomes.md).
 
 ## Architecture and direction
 
