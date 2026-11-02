@@ -9,6 +9,8 @@ import unittest
 from pathlib import Path
 from unittest import mock
 
+import psutil
+
 from noemu import cli, processes
 
 
@@ -58,10 +60,32 @@ class ProcessSafetyTest(unittest.TestCase):
         path = self.directory / "process.json"
         identity = json.loads(path.read_text())
         identity["created"] -= 10
+        if identity["start_ticks"] is not None:
+            identity["start_ticks"] -= 1000
         path.write_text(json.dumps(identity))
         with self.assertRaises(processes.ProcessIdentityError):
             processes.terminate(self.directory)
         self.assertIsNone(self.process.poll())
+
+    def test_a_shifted_boot_time_does_not_disown_a_live_process(self):
+        processes.remember(self.directory, self.process.pid)
+        if json.loads((self.directory / "process.json").read_text())["start_ticks"] is None:
+            self.skipTest("kernel start ticks are available on Linux only")
+        created = psutil.Process(self.process.pid).create_time()
+        # What a clock step does to psutil's derived value, observed in a gate run as "process identity changed".
+        with mock.patch.object(psutil.Process, "create_time", return_value=created + 1.0):
+            self.assertTrue(processes.alive(self.directory))
+
+    def test_records_without_start_ticks_still_require_the_same_creation_time(self):
+        processes.remember(self.directory, self.process.pid)
+        path = self.directory / "process.json"
+        identity = json.loads(path.read_text())
+        del identity["start_ticks"]
+        path.write_text(json.dumps(identity))
+        self.assertTrue(processes.alive(self.directory))
+        identity["created"] -= 10
+        path.write_text(json.dumps(identity))
+        self.assertFalse(processes.alive(self.directory))
 
     def test_memory_requires_verified_identity(self):
         (self.directory / "pid").write_text(str(self.process.pid))
@@ -71,6 +95,8 @@ class ProcessSafetyTest(unittest.TestCase):
         identity_path = self.directory / "process.json"
         identity = json.loads(identity_path.read_text())
         identity["created"] -= 10
+        if identity["start_ticks"] is not None:
+            identity["start_ticks"] -= 1000
         identity_path.write_text(json.dumps(identity))
         self.assertIsNone(processes.resident_memory(self.directory))
 
