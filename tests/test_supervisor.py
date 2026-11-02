@@ -478,6 +478,30 @@ class WarmTest(Fleet):
                          "a warm JVM nobody owns outlived its supervisor")
         self.assertEqual(self.act(grant)["text"], "clean", "a leased instance is adopted by the next supervisor")
 
+    def stubs(self):
+        return [p for p in psutil.process_iter(["cmdline"])
+                if any(str(self.root) in part for part in (p.info["cmdline"] or [])) and "stub_driver" in " ".join(p.info["cmdline"])]
+
+    def test_shutdown_ends_instances_that_are_still_starting(self):
+        os.environ["STUB_START_SECONDS"] = "2"
+        self.addCleanup(os.environ.pop, "STUB_START_SECONDS")
+        self.publish(self.project_a)
+        with self.assertRaises(NoemuError):
+            client.call("pool", project=str(self.project_a), size=1, wait=0.2)
+        wait_until(self.stubs, message="a starting instance")
+        client.call("shutdown")
+        wait_until(lambda: not self.stubs(), timeout=5, message="the starting JVM to end with its supervisor")
+
+    def test_a_refill_finishing_after_the_pool_shrank_is_not_kept(self):
+        os.environ["STUB_START_SECONDS"] = "1"
+        self.addCleanup(os.environ.pop, "STUB_START_SECONDS")
+        self.publish(self.project_a)
+        with self.assertRaises(NoemuError):
+            client.call("pool", project=str(self.project_a), size=1, wait=0.2)
+        client.call("pool", project=str(self.project_a), size=0, wait=5)
+        time.sleep(1.5)
+        self.assertEqual([i for i in client.call("status")["instances"] if i["state"] in supervisor.LIVE], [])
+
     def test_a_new_build_retires_warm_instances_of_the_old_one(self):
         old = self.publish(self.project_a)
         client.call("pool", project=str(self.project_a), size=1)

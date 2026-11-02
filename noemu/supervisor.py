@@ -348,8 +348,12 @@ class Supervisor:
             if ready:
                 try:
                     self.set_state(instance, "warm", port=port)
+                    surplus = len(self.rows("state='warm' and generation=?", self.row(instance)["generation"])) > self.config.warm
                     if waiter:
                         self.lease_out(instance, waiter)
+                    elif surplus or self.row(instance)["generation"] != self.last_generation:
+                        # The pool shrank or moved to a newer build while this refill started.
+                        self.remove_instance(instance, "destroyed")
                     else:
                         processes.send_signal(directory, signal.SIGSTOP)
                 except (OSError, processes.ProcessIdentityError) as error:
@@ -616,7 +620,9 @@ class Supervisor:
         owner who would come back for them, so they end now."""
         with self.mutex:
             self.stopping.set()
-            for row in self.rows("state='warm'"):
+            # A JVM still starting has no owner either; nothing would come back for it.
+            for row in self.rows("state in ('warm', 'starting')"):
+                self.starting.pop(row["id"], None)
                 self.remove_instance(row["id"], "destroyed")
         return {"stopped": True}
 
