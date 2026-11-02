@@ -7,7 +7,8 @@ visible. A merged PR does not establish a passing validation gate.
 ## Scope and current state
 
 Milestone A's hardened gate passed three clean runs at `57e8756`; see
-[its evidence](evidence/milestone-a.md). Run the gate from a checkout that stays on
+[its evidence](evidence/milestone-a.md). Milestone B's passed three at `4b64127`; see
+[its evidence](evidence/milestone-b.md) and [SUPERVISOR.md](SUPERVISOR.md). Run the gate from a checkout that stays on
 the revision under test: `scripts/gate.sh` itself comes from the working tree.
 It covers process and instance safety, versioned JSON transport, truthful CLI/MCP
 failures, structured observations, UI targeting, and the maintained fixtures. The
