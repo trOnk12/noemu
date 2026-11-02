@@ -457,6 +457,27 @@ class WarmTest(Fleet):
         refilled = wait_until(self.warm, message="refill")[0]
         self.assertNotEqual(refilled["id"], waiting["id"])
 
+    def test_shrinking_the_pool_destroys_surplus_warm_instances(self):
+        self.publish(self.project_a)
+        client.call("pool", project=str(self.project_a), size=2)
+        warm = wait_until(lambda: len(self.warm()) == 2 and self.warm(), message="two warm instances")
+        pids = [int((self.root / "instances" / w["id"] / "pid").read_text()) for w in warm]
+        client.call("pool", project=str(self.project_a), size=0)
+        self.assertEqual(self.warm(), [])
+        for pid in pids:
+            self.assertFalse(psutil.pid_exists(pid) and psutil.Process(pid).status() != psutil.STATUS_ZOMBIE)
+
+    def test_shutdown_ends_unowned_warm_instances_and_keeps_leases(self):
+        self.publish(self.project_a)
+        grant = self.acquire()
+        warm = wait_until(self.warm, message="warm instance")[0]
+        pid = int((self.root / "instances" / warm["id"] / "pid").read_text())
+        client.call("shutdown")
+        wait_until(lambda: not (self.root / "supervisor.sock").exists(), message="shutdown")
+        self.assertFalse(psutil.pid_exists(pid) and psutil.Process(pid).status() != psutil.STATUS_ZOMBIE,
+                         "a warm JVM nobody owns outlived its supervisor")
+        self.assertEqual(self.act(grant)["text"], "clean", "a leased instance is adopted by the next supervisor")
+
     def test_a_new_build_retires_warm_instances_of_the_old_one(self):
         old = self.publish(self.project_a)
         client.call("pool", project=str(self.project_a), size=1)

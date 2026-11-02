@@ -33,7 +33,7 @@ immutable generation, and each instance keeps the generation it started from.
     noemu --id ID screen         # any command on a shared instance (or NOEMU_ID=ID)
     noemu destroy ID|all         # end a shared instance, or all of this project's
     noemu list                   # instances: id, state, port, memory
-    noemu shutdown               # stop the supervisor; instances keep running and the next one adopts them
+    noemu shutdown               # stop the supervisor and warm instances; leased ones are adopted by the next
     noemu mcp                    # the same as an MCP server (stdio) for coding agents
     noemu doctor [--module :app] [--task ...]   # what will stand in the way (reads the project, runs nothing)
 

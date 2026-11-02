@@ -132,6 +132,28 @@ Clients that bypass the proxy, including some raw-socket, NIO, and UDP clients,
 are not covered. Permissions are currently granted automatically; permission
 denial experiments are not supported.
 
+## Compare candidate fixes
+
+A broken app and two candidate fixes, each in its own git worktree, built into its
+own immutable generation, and driven through the same journey on separate instances
+at the same time:
+
+```console
+$ NOEMU_HOME=$(mktemp -d) python examples/rotation-fixes/compare.py
+variant       generation        verdict    first failure
+broken        bd3755ef4f2a9764  failed     after `rotate`: expected 3, saw 0
+candidate-a   6b64c8c102756a01  failed     after `tap Add`: expected 4, saw 1
+candidate-b   636a01adb82f69a7  passed
+JVM simulation on Robolectric; not verified on Android.
+```
+
+Candidate A restores the text on screen rather than the count. It looks right after
+rotation, and only the next tap shows that the state was lost. The journey asserts
+the state after rotation *and* after more use. The full run, including the three
+builds, took 25 seconds on the validation host. The live gate checks these verdicts.
+Replayable recordings (milestone E) and the same journey on Android (milestone F)
+are not implemented yet.
+
 ## Parallel agents: leases and generations
 
 ```sh

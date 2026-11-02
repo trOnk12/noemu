@@ -547,6 +547,9 @@ class Supervisor:
         with self.mutex:
             self.last_generation = self.current_generation(args["project"])
             self.config.warm = size
+            # A smaller pool returns its memory now, not when someone next needs room.
+            for row in self.rows("state='warm'")[size:]:
+                self.remove_instance(row["id"], "destroyed")
             self.schedule()
         deadline = time.monotonic() + float(args.get("wait", 600))
         while time.monotonic() < deadline:
@@ -609,8 +612,12 @@ class Supervisor:
             return self.collect()
 
     def op_shutdown(self, args: dict, connection) -> dict:
-        """Stops the supervisor only; instances keep running and the next supervisor adopts them."""
-        self.stopping.set()
+        """Stops the supervisor. Leased instances keep running for the next supervisor to adopt; warm ones have no
+        owner who would come back for them, so they end now."""
+        with self.mutex:
+            self.stopping.set()
+            for row in self.rows("state='warm'"):
+                self.remove_instance(row["id"], "destroyed")
         return {"stopped": True}
 
     # Background ------------------------------------------------------------------------------------------------

@@ -183,6 +183,20 @@ class WorktreeFleetTest(unittest.TestCase):
         self.assertIn("Branch newer", self.screen(tree, latest))
         self.assertEqual(self.identity(tree, latest), new)
 
+    def test_candidate_fixes_are_told_apart_by_the_rotation_journey(self):
+        report_path = self.base / "rotation-report.json"
+        result = subprocess.run([sys.executable, str(ROOT / "examples/rotation-fixes/compare.py"), "--out", str(report_path)],
+                                cwd=ROOT, capture_output=True, text=True, timeout=1500)
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        report = json.loads(report_path.read_text())
+        self.assertEqual({v: e["verdict"] for v, e in report.items()},
+                         {"broken": "failed", "candidate-a": "failed", "candidate-b": "passed"})
+        self.assertEqual((report["broken"]["first_failure"]["action"], report["broken"]["first_failure"]["observed"]),
+                         ("rotate", 0))
+        self.assertEqual((report["candidate-a"]["first_failure"]["action"], report["candidate-a"]["first_failure"]["observed"]),
+                         ("tap Add", 1))
+        self.assertEqual(len({e["generation"] for e in report.values()}), 3)
+
     def test_every_process_is_gone_after_release(self):
         grant = self.lease_on(self.second)
         pid = int((Path(os.environ["NOEMU_HOME"]) / "instances" / grant["instance"] / "pid").read_text())
