@@ -19,6 +19,10 @@ dependency-resolution test. No Android-conformance or performance result is clai
 
 ## Gate status
 
+The table records the last full runtime runs at `62efbba`. The subsequent
+[gate hardening](evidence/gate-hardening.md) is covered by Python and shell
+control-flow regressions; a full run with Gradle/Android SDK remains pending.
+
 | Check | Status |
 | --- | --- |
 | Python regressions | Passed (70 tests); 3 of 3 clean runs at `62efbba` |
@@ -30,7 +34,7 @@ dependency-resolution test. No Android-conformance or performance result is clai
 | macOS | Not run |
 | GitHub Actions | Not run; jobs cannot start (account billing lock) |
 | Android conformance | Not measured; milestone C |
-| Milestone B | In progress |
+| Milestone B | Next; awaiting the hardened gate's full rerun |
 | Milestones C–H | Not started |
 
 Environment: WSL2 Ubuntu 22.04 on Linux 6.6.87 (6 vCPU, 7.7 GiB), Python 3.10.12,

@@ -1,27 +1,55 @@
 #!/usr/bin/env bash
-# Run every milestone A check against one committed revision, from a fresh clone
-# with freshly resolved dependencies, so uncommitted files cannot affect the result.
-# Every check runs even after a failure. The exit status is nonzero if any failed.
-#
-# Usage: scripts/gate.sh [revision] [results-dir]   (default: HEAD, a new temp dir)
-# Needs JDK 21, Gradle 8.11.1, ANDROID_HOME; see scripts/bootstrap-toolchain.sh.
-set -uo pipefail
+# Run every milestone A check against one committed revision, from a fresh clone.
+# Setup failures stop immediately; independent checks continue after test failures.
+# Fixture logs and JUnit XML are retained per check, with a bounded hash manifest.
+# Usage: scripts/gate.sh [revision] [empty-results-dir]
+# Needs JDK 21, Gradle 8.11.1, ANDROID_HOME; see bootstrap-toolchain.sh.
+set -euo pipefail
+# The wheel check must not import packages injected by the invoking shell.
+unset PYTHONPATH PYTHONHOME
 
-repo=$(git -C "$(dirname "$0")" rev-parse --show-toplevel)
-revision=$(git -C "$repo" rev-parse "${1:-HEAD}^{commit}")
+script_dir=$(cd -- "$(dirname -- "$0")" && pwd -P)
+repo=$(git -C "$script_dir" rev-parse --show-toplevel)
+revision=$(git -C "$repo" rev-parse --verify --end-of-options "${1:-HEAD}^{commit}")
 results=${2:-$(mktemp -d)}
+mkdir -p -- "$results"
+results=$(cd -- "$results" && pwd -P)
+if [ -n "$(ls -A -- "$results")" ]; then
+  echo "gate: results directory must be empty: $results" >&2
+  exit 2
+fi
 work=$(mktemp -d)
-mkdir -p "$results"
 failed=0
+printf 'revision %s\nstatus incomplete\n' "$revision" >"$results/result.txt"
+
+cleanup() {
+  local status=$?
+  trap - EXIT
+  if [ "$status" -eq 0 ]; then
+    if [ -n "$work" ]; then rm -rf -- "$work"; fi
+  else
+    echo "gate did not pass; workspace retained at $work" >&2
+    echo "setup/check logs: $results" >&2
+    echo "Remove that directory when its diagnostics are no longer needed." >&2
+  fi
+  exit "$status"
+}
+trap cleanup EXIT
+trap 'exit 130' INT
+trap 'exit 143' TERM
 
 check() {  # check NAME COMMAND...
   local name=$1 start status
   shift
   start=$SECONDS
-  "$@" >"$results/$name.log" 2>&1
-  status=$?
+  if "$@" >"$results/$name.log" 2>&1; then status=0; else status=$?; fi
   printf '%-22s exit=%d %4ds\n' "$name" "$status" "$((SECONDS - start))" | tee -a "$results/summary.txt"
-  [ "$status" -eq 0 ] || failed=1
+  if [ "$status" -ne 0 ]; then failed=1; fi
+  if ! python3 "$script_dir/gate_artifacts.py" "$work/src" "$results/artifacts/$name" \
+      >"$results/$name-artifacts.log" 2>&1; then
+    echo "artifact capture incomplete for $name; see its manifest/log" | tee -a "$results/summary.txt"
+    failed=1
+  fi
 }
 
 protocol() {
@@ -30,41 +58,60 @@ protocol() {
 }
 
 driver() {
-  NOEMU_FIXTURE=$1 NOEMU_SHOTS=0 "$work/dev/bin/python" "$work/src/tests/integration_driver.py"
+  NOEMU_FIXTURE=$1 NOEMU_SHOTS=0 "$work/installed/bin/python" "$work/src/tests/integration_driver.py"
 }
 
 installed() {
   (cd "$work" && "$work/installed/bin/noemu" --help >/dev/null &&
-    "$work/installed/bin/python" -c 'import noemu, sys; sys.exit("/src/noemu" in noemu.__file__)' &&
+    "$work/installed/bin/python" -c 'from pathlib import Path; import noemu, sys; assert Path(noemu.__file__).resolve().is_relative_to(Path(sys.prefix).resolve()), noemu.__file__' &&
     "$work/installed/bin/python" "$work/src/tests/mcp_stdio.py")
 }
 
+wheel_install() {
+  "$work/installed/bin/python" -m pip install -q "$work"/src/dist/*.whl
+}
+
+prepare() {
+  git clone -q --no-hardlinks "$repo" "$work/src"
+  git -C "$work/src" checkout -q --detach "$revision"
+  actual=$(git -C "$work/src" rev-parse --verify HEAD)
+  if [ "$actual" != "$revision" ]; then
+    echo "gate: checked-out revision $actual differs from requested $revision" >&2
+    exit 2
+  fi
+  python3 -m venv "$work/dev"
+  python3 -m venv "$work/installed"
+}
+# Run outside an `if`: errexit must remain enabled throughout setup.
+prepare >"$results/setup.log" 2>&1
+
 {
   echo "revision $revision"
+  echo "checked-out $actual"
   uname -sr
   python3 --version
   java -version 2>&1 | head -1
   gradle --version | grep -E '^Gradle '
 } | tee "$results/environment.txt"
 
-git clone -q --no-hardlinks "$repo" "$work/src"
-git -C "$work/src" checkout -q "$revision"
-python3 -m venv "$work/dev"
-python3 -m venv "$work/installed"
-
 check dev-install "$work/dev/bin/python" -m pip install -q -e "$work/src" build
-check python-unit bash -c "cd '$work/src' && '$work/dev/bin/python' -m unittest discover -s tests -t ."
+check python-unit bash -c 'cd "$1" && "$2" -m unittest discover -s tests -t .' _ "$work/src" "$work/dev/bin/python"
 check wheel-build "$work/dev/bin/python" -m build "$work/src"
-check wheel-install bash -c "'$work/installed/bin/python' -m pip install -q '$work'/src/dist/*.whl"
+check wheel-install wheel_install
 check mcp-stdio-installed installed
 check gradle-wrapper gradle -p "$work/src/fixtures" wrapper --gradle-version 8.11.1
 check protocol-views protocol views
 check protocol-compose protocol compose
 check driver-views driver views
 check driver-compose driver compose
+check dependency-inventory "$work/installed/bin/python" -m pip freeze
 
-"$work/installed/bin/python" -m pip list 2>/dev/null | grep -Ei '^(noemu|mcp|psutil) ' >>"$results/environment.txt"
-rm -rf "$work"
+if [ "$failed" -eq 0 ]; then
+  if rm -rf -- "$work"; then work=""; else failed=1; fi
+fi
+status=failed
+if [ "$failed" -eq 0 ]; then status=passed; fi
+printf 'revision %s\nstatus %s\n' "$revision" "$status" >"$results/result.txt"
 echo "results $results"
-[ "$failed" -eq 0 ] && echo "gate PASSED $revision" || echo "gate FAILED $revision"
+if [ "$failed" -eq 0 ]; then echo "gate PASSED $revision"; else echo "gate FAILED $revision"; fi
 exit "$failed"

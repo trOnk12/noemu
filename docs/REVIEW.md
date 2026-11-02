@@ -6,7 +6,9 @@ visible. A merged PR does not establish a passing validation gate.
 
 ## Scope and current state
 
-Milestone A's automated gate passes; see [its evidence](evidence/milestone-a.md).
+Milestone A's runtime gate passed at `62efbba`; see [its evidence](evidence/milestone-a.md).
+The gate itself has since been hardened; [that follow-up](evidence/gate-hardening.md)
+has Python/control-flow coverage, with a full Android-toolchain run still pending.
 It covers process and instance safety, versioned JSON transport, truthful CLI/MCP
 failures, structured observations, UI targeting, and the maintained fixtures. The
 gate establishes JVM behavior on Linux, not Android conformance. macOS has not run.
@@ -30,8 +32,30 @@ The gate clones one committed revision and creates fresh virtual environments, s
 uncommitted files and local packages cannot affect the outcome. It runs the Python
 suite, builds and installs the wheel, runs `tests/mcp_stdio.py` with the installed
 interpreter outside the checkout, generates the fixture wrapper, then runs ProtocolTest
-and the live driver tests on both fixtures. Every check runs even after a failure.
-Each writes a log to the results directory; the exit status is nonzero if any failed.
+and the live driver tests on both fixtures using the installed wheel. Revision
+resolution, clone/checkout, and virtual-environment failures stop immediately.
+The cloned HEAD must match the requested commit before any check runs. Independent
+checks continue after test failures; any failure produces a nonzero exit status.
+
+The results directory must be empty, so old evidence cannot be overwritten or mixed
+into a new run. `environment.txt` records the requested and checked-out SHA;
+`result.txt` remains `incomplete` until the checks finish. The installed wheel must
+import from its own virtual environment; inherited `PYTHONPATH`/`PYTHONHOME` are removed.
+
+After every check, selected fixture startup/build logs and JUnit XML are copied to
+`artifacts/<check>/`, with paths, sizes, SHA-256 hashes, and collection errors in
+`manifest.json`. App storage and native runtime extraction directories are excluded.
+Limits per collection are 500 files, 2 MiB per file, and 16 MiB total. Oversized
+artifacts retain their tail with a `.truncated` suffix. Missing prerequisites may
+produce no fixture artifacts; the check's failure log still remains available.
+Truncation, refused symlinks, or collection errors make the gate fail explicitly.
+
+Successful runs remove their temporary clone after saving evidence. Failed or
+interrupted runs retain that workspace and print its path and results directory.
+Remove the reported workspace when diagnostics are no longer needed; repeated
+failed runs retain separate workspaces. `dependency-inventory.log` records installed
+Python dependencies. The gate does not retain screenshots or arbitrary app data in
+its copied artifact bundle.
 
 `tests/mcp_sandbox_diagnostic.py` is only a diagnostic for sandboxes without working
 socket pairs. Its success never substitutes for `tests/mcp_stdio.py`. The driver uses

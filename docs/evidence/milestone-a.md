@@ -4,6 +4,11 @@
 [`62efbba`](https://github.com/trOnk12/noemu/commit/62efbba3e3b0643d12e57e10dbdb2717c3881254).
 Each run cloned that commit and resolved dependencies afresh.
 
+This is the historical runtime result for that commit. The later
+[gate hardening](gate-hardening.md) fixes revision handling and evidence retention;
+its full Android-toolchain rerun is still pending. Its control-flow tests do not
+replace these runtime checks.
+
 | Check | Run 1 | Run 2 | Run 3 |
 | --- | --- | --- | --- |
 | Python suite (70 tests) | pass | pass | pass |

@@ -11,9 +11,11 @@ developers, conducting interviews, and contacting external reviewers are outside
 the authorized scope. Use maintained fixtures and reproducible checks to establish
 technical behavior; they do not establish adoption or willingness to pay.
 
-## Completed gate: A — repair the foundation
+## A — runtime pass recorded; hardened gate rerun pending
 
 Passed three consecutive clean runs; see [the evidence](evidence/milestone-a.md).
+Those runs tested `62efbba`. Finish the full rerun of the
+[hardened gate](evidence/gate-hardening.md) before advancing to B.
 This change addressed unsafe instance paths and PID-only signaling,
 misreported command failures, multiline transport, malformed MCP requests,
 ambiguous/stale/disabled targets, horizontal scrolling, benchmark false positives,
@@ -23,7 +25,7 @@ versioned JSON, bounded messages, and official MCP SDK handling.
 **Exit gate:** Python regressions, driver integration tests on both fixtures, and
 clean package-install tests pass. Known failures must not be reported as success.
 
-## Current gate: B — useful fleet and first external pilot
+## Next gate: B — useful fleet and first external pilot
 
 Implement one local supervisor per OS user, shared across projects and worktrees:
 private Unix socket, transactional SQLite metadata, immutable runtime generations,

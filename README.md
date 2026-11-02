@@ -11,13 +11,15 @@ The goal is to make Android behavior as easy to explore, reproduce, and compare
 as source code. A successful JVM operation establishes what happened in that
 simulation. Verification on Android is a separate, planned capability.
 
-> **Experimental.** Milestone A's automated gate passes on Linux (WSL2): Python
+> **Experimental.** Milestone A's runtime gate passed on Linux (WSL2): Python
 > regressions, a clean wheel installation with the MCP stdio check, Kotlin compilation,
 > and live driver tests on both fixtures. This shows that the driver does what its
 > tests assert on the JVM. It does not show that behavior matches Android; that
 > comparison is milestone C. macOS has not been validated. The shared supervisor,
 > immutable builds, replay engine, and Android verification adapter are planned. Read
 > the [validation record](docs/VALIDATION.md) before relying on verification results.
+> Those full runs tested `62efbba`; the subsequently hardened gate still needs its
+> full Android-toolchain rerun.
 
 ## Implemented interfaces
 
