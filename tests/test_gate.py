@@ -3,10 +3,14 @@ import json
 import os
 from pathlib import Path
 import shutil
+import signal
 import subprocess
 import sys
 import tempfile
+import time
 import unittest
+
+import psutil
 
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -22,7 +26,7 @@ class GateTest(unittest.TestCase):
         self.repo.mkdir()
         self.stubs.mkdir()
         (self.repo / "scripts").mkdir()
-        for name in ("gate.sh", "gate_artifacts.py"):
+        for name in ("gate.sh", "gate_artifacts.py", "gate_command.py"):
             source = ROOT / "scripts" / name
             if source.exists():
                 shutil.copyfile(source, self.repo / "scripts" / name)
@@ -51,8 +55,8 @@ if sys.argv[1:3] == ["-m", "venv"]:
     (target / "python").chmod(0o755)
     (target / "noemu").write_text("#!/bin/sh\\nexit 0\\n")
     (target / "noemu").chmod(0o755)
-elif len(sys.argv) > 1 and sys.argv[1].endswith("gate_artifacts.py"):
-    if os.environ.get("FAIL_ARTIFACTS"):
+elif len(sys.argv) > 1 and sys.argv[1].endswith(("gate_artifacts.py", "gate_command.py")):
+    if os.environ.get("FAIL_ARTIFACTS") and sys.argv[1].endswith("gate_artifacts.py"):
         sys.exit(26)
     os.execv({sys.executable!r}, [{sys.executable!r}, *sys.argv[1:]])
 else:
@@ -73,6 +77,10 @@ if len(sys.argv) > 1 and sys.argv[1].endswith("integration_driver.py"):
     log = src / "fixtures/.gradle/noemu-fleet/1/log.txt"
     log.parent.mkdir(parents=True, exist_ok=True)
     log.write_text("fixture startup diagnostic: " + os.environ["NOEMU_FIXTURE"])
+    if os.environ.get("STALL_DRIVER") == os.environ["NOEMU_FIXTURE"]:
+        import time
+        pathlib.Path(os.environ["GATE_STALLED_PID"]).write_text(str(os.getpid()))
+        time.sleep(30)
     if os.environ.get("FAIL_DRIVER") == os.environ["NOEMU_FIXTURE"]:
         print("startup failed; see " + str(log), file=sys.stderr)
         sys.exit(25)
@@ -92,6 +100,7 @@ else:
 ''')
         self.env = {**os.environ, "PATH": str(self.stubs) + os.pathsep + os.environ["PATH"],
                     "TMPDIR": str(self.root), "GATE_CALLS": str(self.root / "calls"),
+                    "GATE_STALLED_PID": str(self.root / "stalled-pid"),
                     "GATE_TESTED_SHA": str(self.root / "tested-sha")}
 
     def executable(self, name, body):
@@ -171,6 +180,42 @@ else:
         logs = list(self.results.rglob("log.txt"))
         self.assertTrue(any("diagnostic: views" in p.read_text() for p in logs), "Failed JVM log was deleted")
         self.assertTrue(any("diagnostic: compose" in p.read_text() for p in logs))
+
+    def test_stalled_check_times_out_retains_evidence_and_continues(self):
+        result = self.gate(STALL_DRIVER="views", NOEMU_GATE_CHECK_SECONDS="1",
+                           NOEMU_GATE_KILL_GRACE_SECONDS="0.1")
+        self.assertNotEqual(result.returncode, 0, result.stdout)
+        summary = (self.results / "summary.txt").read_text()
+        self.assertRegex(summary, r"driver-views\s+exit=124")
+        self.assertIn("driver-compose", summary)
+        self.assertIn("deadline exceeded", (self.results / "driver-views.log").read_text())
+        self.assertTrue(any("diagnostic: views" in p.read_text() for p in self.results.rglob("log.txt")))
+
+    def test_cancelling_gate_forwards_signal_and_keeps_run_incomplete(self):
+        process = subprocess.Popen(["bash", str(self.repo / "scripts/gate.sh"), self.revision,
+                                    str(self.results)], cwd=self.repo,
+                                   env={**self.env, "STALL_DRIVER": "views", "NOEMU_GATE_KILL_GRACE_SECONDS": "0.1"},
+                                   stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+        try:
+            marker = self.root / "stalled-pid"
+            deadline = time.monotonic() + 10
+            while not marker.exists() and time.monotonic() < deadline:
+                time.sleep(0.02)
+            self.assertTrue(marker.exists(), "driver check did not start")
+            child = psutil.Process(int(marker.read_text()))
+            process.send_signal(signal.SIGTERM)
+            process.communicate(timeout=5)
+            self.assertEqual(process.returncode, 143)
+            self.assertIn("status incomplete", (self.results / "result.txt").read_text())
+            self.assertNotIn("driver-compose", (self.results / "summary.txt").read_text())
+            try:
+                self.assertIn(child.status(), (psutil.STATUS_ZOMBIE, psutil.STATUS_DEAD))
+            except psutil.NoSuchProcess:
+                pass
+        finally:
+            if process.poll() is None:
+                process.terminate()
+                process.communicate(timeout=5)
 
 
 if __name__ == "__main__":

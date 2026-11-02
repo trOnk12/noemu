@@ -47,6 +47,25 @@ SDK, so the full gate with these changes has **not** run. Execute
 `scripts/gate.sh <follow-up-commit> <empty-results-dir>` on the provisioned host and
 retain the results bundle before advancing to milestone B.
 
-The script does not impose a global timeout on every underlying build process.
+## Command deadlines
+
+A subsequent regression stalled the Views check for 30 seconds; the previous gate
+exceeded the test harness's 15-second deadline instead of recording a failed check.
+The gate now bounds preparation, environment discovery, checks and artifact capture.
+A timed-out check records exit 124, retains evidence, and permits independent checks
+to continue. Cancellation stops the active command group and leaves `incomplete`.
+
+Real Linux child-process tests cover success/failure propagation, invalid budgets,
+missing executables, timeout and cancellation. A descendant ignores TERM while its
+parent exits; the runner still kills that descendant before returning. Shell gate
+tests cover timeout evidence/continuation and cancellation forwarding. They are
+validation-harness evidence, not Android execution or macOS evidence.
+
+On 2026-11-02, the complete Python suite passed **89 tests in 33.327 seconds**,
+including seven added deadline/cancellation tests. Bash syntax and Git whitespace
+checks also passed. The full Android-toolchain gate remains pending at this revision.
+
+Deadlines do not bound the whole gate or guarantee termination of detached processes
+and uninterruptible kernel work. See [configuration and limits](../REVIEW.md#checks-to-run).
 Failure workspaces are retained separately from the bounded copied artifacts and
 must be removed explicitly once their diagnostics are no longer needed.

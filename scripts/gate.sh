@@ -20,6 +20,10 @@ if [ -n "$(ls -A -- "$results")" ]; then
 fi
 work=$(mktemp -d)
 failed=0
+runner_pid=""
+check_seconds=${NOEMU_GATE_CHECK_SECONDS:-900}
+setup_seconds=${NOEMU_GATE_SETUP_SECONDS:-300}
+grace_seconds=${NOEMU_GATE_KILL_GRACE_SECONDS:-5}
 printf 'revision %s\nstatus incomplete\n' "$revision" >"$results/result.txt"
 
 cleanup() {
@@ -35,17 +39,35 @@ cleanup() {
   exit "$status"
 }
 trap cleanup EXIT
-trap 'exit 130' INT
-trap 'exit 143' TERM
+cancel() {
+  trap '' INT TERM
+  if [ -n "$runner_pid" ]; then
+    kill -TERM "$runner_pid" 2>/dev/null || true
+    wait "$runner_pid" || true
+  fi
+  exit "$1"
+}
+trap 'cancel 130' INT
+trap 'cancel 143' TERM
+
+bounded() {
+  local seconds=$1 status
+  shift
+  python3 "$script_dir/gate_command.py" --seconds "$seconds" --grace "$grace_seconds" -- "$@" &
+  runner_pid=$!
+  if wait "$runner_pid"; then status=0; else status=$?; fi
+  runner_pid=""
+  return "$status"
+}
 
 check() {  # check NAME COMMAND...
   local name=$1 start status
   shift
   start=$SECONDS
-  if "$@" >"$results/$name.log" 2>&1; then status=0; else status=$?; fi
+  if bounded "$check_seconds" bash -e -u -o pipefail -c '"$@"' _ "$@" >"$results/$name.log" 2>&1; then status=0; else status=$?; fi
   printf '%-22s exit=%d %4ds\n' "$name" "$status" "$((SECONDS - start))" | tee -a "$results/summary.txt"
   if [ "$status" -ne 0 ]; then failed=1; fi
-  if ! python3 "$script_dir/gate_artifacts.py" "$work/src" "$results/artifacts/$name" \
+  if ! bounded 30 python3 "$script_dir/gate_artifacts.py" "$work/src" "$results/artifacts/$name" \
       >"$results/$name-artifacts.log" 2>&1; then
     echo "artifact capture incomplete for $name; see its manifest/log" | tee -a "$results/summary.txt"
     failed=1
@@ -83,16 +105,23 @@ prepare() {
   python3 -m venv "$work/installed"
 }
 # Run outside an `if`: errexit must remain enabled throughout setup.
-prepare >"$results/setup.log" 2>&1
+export work repo revision
+export -f prepare protocol driver installed wheel_install
+bounded "$setup_seconds" bash -e -u -o pipefail -c prepare >"$results/setup.log" 2>&1
+actual=$(git -C "$work/src" rev-parse --verify HEAD)
+export actual
 
-{
+environment() {
   echo "revision $revision"
   echo "checked-out $actual"
   uname -sr
   python3 --version
   java -version 2>&1 | head -1
   gradle --version | grep -E '^Gradle '
-} | tee "$results/environment.txt"
+}
+export -f environment
+bounded "$setup_seconds" bash -e -u -o pipefail -c environment >"$results/environment.txt" 2>&1
+cat "$results/environment.txt"
 
 check dev-install "$work/dev/bin/python" -m pip install -q -e "$work/src" build
 check python-unit bash -c 'cd "$1" && "$2" -m unittest discover -s tests -t .' _ "$work/src" "$work/dev/bin/python"

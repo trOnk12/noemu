@@ -222,6 +222,11 @@ Python suite, a clean wheel installation, Kotlin protocol checks, and live drive
 checks for both fixtures. CI defines the same checks, but a configured job is not
 evidence of a passing run.
 
+Validation commands have deadlines: 15 minutes per check, 5 minutes for setup and
+environment discovery, and 30 seconds per artifact capture. A timeout fails the
+check, keeps its diagnostics, and allows independent checks to continue. See the
+[review guide](docs/REVIEW.md#checks-to-run) for configuration and cleanup limits.
+
 Historical experiments live in [bench/](bench/). Their timings and findings apply
 to those recorded revisions and conditions. They do not establish current p95
 performance, Android conformance, or the roadmap's 1,000-cycle reliability target.

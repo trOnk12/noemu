@@ -37,6 +37,18 @@ resolution, clone/checkout, and virtual-environment failures stop immediately.
 The cloned HEAD must match the requested commit before any check runs. Independent
 checks continue after test failures; any failure produces a nonzero exit status.
 
+Each check defaults to 900 seconds (`NOEMU_GATE_CHECK_SECONDS`); preparation and
+environment discovery each get 300 seconds (`NOEMU_GATE_SETUP_SECONDS`). Artifact
+capture gets 30 seconds. The command runner sends TERM to its process group, then
+KILL after 5 seconds (`NOEMU_GATE_KILL_GRACE_SECONDS`), including descendants that
+remain after the command leader exits. Overrides must be finite positive seconds,
+at most 86400. A timeout records exit 124 and cannot pass the gate. INT/TERM
+cancellation is forwarded to the active runner and leaves the run incomplete.
+These are command deadlines, not a global hard wall-clock limit: processes that
+detach into another session/group and uninterruptible kernel work are outside
+this cleanup guarantee. In particular, separately launched NoEmu JVMs still use
+their own verified process records; do not assume a timed-out gate destroyed them.
+
 The results directory must be empty, so old evidence cannot be overwritten or mixed
 into a new run. `environment.txt` records the requested and checked-out SHA;
 `result.txt` remains `incomplete` until the checks finish. The installed wheel must
