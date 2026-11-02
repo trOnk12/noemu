@@ -15,6 +15,11 @@ PATTERNS = (
     "fixtures/.gradle/noemu-fleet/*/crash.txt",
     "fixtures/.gradle/noemu-fleet/*/crawl-report.txt",
     "fixtures/*/build/test-results/**/*.xml",
+    # The supervisor's state directory (NOEMU_HOME), collected as a separate source.
+    "supervisor.log",
+    "instances/*/log.txt",
+    "instances/*/crash.txt",
+    "instances/*/crawl-report.txt",
 )
 
 

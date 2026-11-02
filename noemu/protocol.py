@@ -20,7 +20,7 @@ COMMANDS = {
 class NoemuError(RuntimeError):
     def __init__(self, code: str, message: str, result: dict | None = None):
         super().__init__(f"noemu: {code}: {message}")
-        self.code, self.result = code, result
+        self.code, self.message, self.result = code, message, result
 
 
 def _validate_unicode(value: Any) -> None:

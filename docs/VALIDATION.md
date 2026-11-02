@@ -19,22 +19,24 @@ dependency-resolution test. No Android-conformance or performance result is clai
 
 ## Gate status
 
-The hardened gate passed three consecutive clean runs at `57e8756`; see
-[the evidence](evidence/milestone-a.md). Its first run, at `53f93d4`, failed and
-exposed a process-identity defect that `57e8756` fixes.
+Milestone A's hardened gate passed three clean runs at `57e8756`; see
+[its evidence](evidence/milestone-a.md). Milestone B's gate, which adds the live fleet
+checks across git worktrees, passed three clean runs at `4b64127`; see
+[its evidence](evidence/milestone-b.md).
 
 | Check | Status |
 | --- | --- |
-| Python regressions | Passed (109 tests); 3 of 3 at `57e8756` |
-| Clean wheel installation with fresh dependencies | Passed; 3 of 3 |
-| Installed MCP stdio integration (`tests/mcp_stdio.py`) | Passed; 3 of 3 |
+| Python regressions | Passed (154 tests); 3 of 3 at `4b64127` |
+| Clean wheel installation and installed MCP stdio integration | Passed; 3 of 3 |
 | Kotlin compilation and ProtocolTest, both fixtures | Passed (5 tests each); 3 of 3 |
 | Live Views and Compose driver checks | Passed (10 tests each); 3 of 3 |
-| Milestone A | **Gate passed** |
+| Live fleet across worktrees, including the candidate-fix comparison | Passed (6 tests); 3 of 3 |
+| Fleet latency, 100 warm cycles | Every p95 under 1 s on this host; see the evidence |
+| Lifecycle soak, 1,000 cycles | No failures, leaks, or orphans (stub instances) |
+| Milestones A and B | **Gates passed** |
 | macOS | Not run |
 | GitHub Actions | Not run; jobs cannot start (account billing lock) |
 | Android conformance | Not measured; milestone C |
-| Milestone B | In progress |
 | Milestones C–H | Not started |
 
 Environment: WSL2 Ubuntu 22.04 on Linux 6.6.87 (6 vCPU, 7.7 GiB), Python 3.10.12,

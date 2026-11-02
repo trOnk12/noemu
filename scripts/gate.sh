@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Run every milestone A check against one committed revision, from a fresh clone.
+# Run every automated check against one committed revision, from a fresh clone.
 # Setup failures stop immediately; independent checks continue after test failures.
 # Fixture logs and JUnit XML are retained per check, with a bounded hash manifest.
 # Usage: scripts/gate.sh [revision] [empty-results-dir]
@@ -67,7 +67,8 @@ check() {  # check NAME COMMAND...
   if bounded "$check_seconds" bash -e -u -o pipefail -c '"$@"' _ "$@" >"$results/$name.log" 2>&1; then status=0; else status=$?; fi
   printf '%-22s exit=%d %4ds\n' "$name" "$status" "$((SECONDS - start))" | tee -a "$results/summary.txt"
   if [ "$status" -ne 0 ]; then failed=1; fi
-  if ! bounded 30 python3 "$script_dir/gate_artifacts.py" "$work/src" "$results/artifacts/$name" \
+  if ! { bounded 30 python3 "$script_dir/gate_artifacts.py" "$work/src" "$results/artifacts/$name" &&
+         bounded 30 python3 "$script_dir/gate_artifacts.py" "$NOEMU_HOME" "$results/artifacts/$name/fleet"; } \
       >"$results/$name-artifacts.log" 2>&1; then
     echo "artifact capture incomplete for $name; see its manifest/log" | tee -a "$results/summary.txt"
     failed=1
@@ -81,6 +82,10 @@ protocol() {
 
 driver() {
   NOEMU_FIXTURE=$1 NOEMU_SHOTS=0 "$work/installed/bin/python" "$work/src/tests/integration_driver.py"
+}
+
+fleet() {
+  "$work/installed/bin/python" "$work/src/tests/integration_fleet.py"
 }
 
 installed() {
@@ -106,10 +111,28 @@ prepare() {
 }
 # Run outside an `if`: errexit must remain enabled throughout setup.
 export work repo revision
-export -f prepare protocol driver installed wheel_install
+export -f prepare protocol driver fleet installed wheel_install
 bounded "$setup_seconds" bash -e -u -o pipefail -c prepare >"$results/setup.log" 2>&1
 actual=$(git -C "$work/src" rev-parse --verify HEAD)
 export actual
+# A private fleet: the gate must not touch the user's instances, and their load must not affect it.
+export NOEMU_HOME="$work/home"
+mkdir -m 700 "$NOEMU_HOME"
+
+stop_fleet() {
+  # Stops the gate's own supervisor and instances; generations are read-only until made writable.
+  if [ -S "$NOEMU_HOME/supervisor.sock" ]; then "$work/installed/bin/python" -m noemu shutdown >/dev/null 2>&1 || true; fi
+  # Only processes whose recorded identity still verifies are signalled; never a bare PID.
+  "$work/installed/bin/python" -c 'import sys
+from pathlib import Path
+from noemu import processes
+for directory in Path(sys.argv[1]).glob("instances/*"):
+    try:
+        processes.terminate(directory)
+    except (processes.ProcessIdentityError, TimeoutError):
+        pass' "$NOEMU_HOME" >/dev/null 2>&1 || true
+  chmod -R u+w "$NOEMU_HOME" 2>/dev/null || true
+}
 
 environment() {
   echo "revision $revision"
@@ -133,8 +156,10 @@ check protocol-views protocol views
 check protocol-compose protocol compose
 check driver-views driver views
 check driver-compose driver compose
+check fleet-worktrees fleet
 check dependency-inventory "$work/installed/bin/python" -m pip freeze
 
+stop_fleet
 if [ "$failed" -eq 0 ]; then
   if rm -rf -- "$work"; then work=""; else failed=1; fi
 fi

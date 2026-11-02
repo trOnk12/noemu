@@ -11,7 +11,7 @@ from unittest import mock
 
 import psutil
 
-from noemu import cli, processes
+from noemu import cli, generations, processes, supervisor
 
 
 class InstanceSafetyTest(unittest.TestCase):
@@ -28,14 +28,15 @@ class InstanceSafetyTest(unittest.TestCase):
         with mock.patch.dict(os.environ, {"NOEMU_ID": "../escape"}), self.assertRaises(SystemExit):
             cli.main(["screen"])
 
-    def test_symlink_instance_is_rejected(self):
+    def test_removing_a_symlinked_directory_never_follows_it(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
-            (root / "fleet").mkdir()
             (root / "outside").mkdir()
-            (root / "fleet/0").symlink_to(root / "outside", target_is_directory=True)
-            with mock.patch.object(cli, "FLEET", root / "fleet"), self.assertRaises(SystemExit):
-                cli.main(["destroy", "0"])
+            (root / "outside/keep").write_text("not ours")
+            (root / "instance").symlink_to(root / "outside", target_is_directory=True)
+            generations.remove_tree(root / "instance")
+            self.assertFalse((root / "instance").is_symlink())
+            self.assertTrue((root / "outside/keep").exists())
 
 
 class ProcessSafetyTest(unittest.TestCase):
@@ -111,18 +112,19 @@ class ProcessSafetyTest(unittest.TestCase):
         with mock.patch.object(processes, "verified", return_value=process):
             self.assertIsNone(processes.resident_memory(self.directory))
 
-    def test_destroy_waits_for_exit_and_does_not_delete_unowned_data(self):
-        processes.remember(self.directory, self.process.pid)
-        with tempfile.TemporaryDirectory(prefix="robolectric-unowned-") as other:
+    def test_removing_an_instance_waits_for_exit_and_does_not_delete_unowned_data(self):
+        with tempfile.TemporaryDirectory() as root, tempfile.TemporaryDirectory(prefix="robolectric-unowned-") as other:
             marker = Path(other) / "keep"
             marker.write_text("another instance")
             (self.directory / "datadir").write_text(other)
             (self.directory / "tmp").mkdir()
-            cli.destroy_one(self.directory)
+            processes.remember(self.directory, self.process.pid)
+            owner = mock.Mock(children={}, action_locks={}, directory=lambda _: self.directory)
+            supervisor.Supervisor.remove_instance(owner, 1, "failed")
             self.process.wait(timeout=1)
             self.assertTrue(marker.exists())
             self.assertFalse((self.directory / "tmp").exists())
-            self.assertEqual(cli.state_of(self.directory), "destroyed")
+            owner.set_state.assert_called_once()
 
 
 class ArgumentsTest(unittest.TestCase):

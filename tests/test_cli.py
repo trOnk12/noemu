@@ -56,107 +56,6 @@ class CliTest(unittest.TestCase):
         self.assertTrue((cli.HERE / "driver" / "RealClock.kt").exists())
 
 
-class FleetTest(unittest.TestCase):
-    """The fleet's bookkeeping, with sleeping processes standing in for app JVMs."""
-
-    def setUp(self):
-        self.cwd = os.getcwd()
-        self.dir = tempfile.TemporaryDirectory()
-        os.chdir(self.dir.name)
-        cli.STATE.mkdir(parents=True)
-        (cli.STATE / "launch.json").write_text("{}")
-        self.procs = []
-
-    def tearDown(self):
-        for p in self.procs:
-            p.kill()
-            p.wait()
-        os.chdir(self.cwd)
-        self.dir.cleanup()
-
-    def instance(self, name, state, build=None, port="4000"):
-        d = cli.FLEET / name
-        d.mkdir(parents=True)
-        p = subprocess.Popen(["sleep", "60"], start_new_session=True)
-        self.procs.append(p)
-        cli.processes.remember(d, p.pid)
-        (d / "state").write_text(state)
-        (d / "build").write_text(build or cli.build_id())
-        (d / "port").write_text(port)
-        return d
-
-    def test_session_commands_go_to_the_chosen_instance(self):
-        self.instance("3", "running", port="4333")
-        with mock.patch.object(cli.socket, "create_connection", side_effect=OSError("stop")) as connect:
-            for argv, env in ((["--id", "3", "screen"], {}), (["screen"], {"NOEMU_ID": "3"})):
-                with mock.patch.dict(os.environ, env), self.assertRaises(cli.NoemuError):
-                    cli.main(argv)
-                self.assertEqual(connect.call_args.args[0], ("127.0.0.1", 4333))
-
-    def test_a_frozen_instance_is_refused_at_once_not_waited_on(self):
-        self.instance("4", "pooled")
-        self.instance("5", "asleep")
-        with mock.patch.object(cli.socket, "create_connection") as connect:
-            for name, hint in (("4", "noemu spawn"), ("5", "noemu wake 5")):
-                with self.assertRaises(cli.NoemuError) as e:
-                    cli.main(["--id", name, "screen"])
-                self.assertIn(hint, str(e.exception))
-        connect.assert_not_called()
-
-    def test_no_answer_is_a_message_not_a_traceback(self):
-        self.instance("6", "running")
-        with mock.patch.object(cli.socket, "create_connection", side_effect=TimeoutError("timed out")):
-            with self.assertRaises(cli.NoemuError) as e:
-                cli.main(["--id", "6", "screen"])
-        self.assertIn("no answer", str(e.exception))
-
-    def test_spawn_takes_a_pooled_instance_of_the_current_build(self):
-        self.instance("0", "pooled", build="old")
-        self.instance("1", "pooled", port="4111")
-        with mock.patch.object(cli.subprocess, "Popen") as refill, mock.patch("builtins.print") as out:
-            cli.main(["spawn"])
-        out.assert_called_once_with("1 4111")
-        self.assertEqual(cli.state_of(cli.FLEET / "1"), "running")
-        self.assertIn("_refill", refill.call_args.args[0])
-
-    def test_two_agents_never_get_the_same_instance(self):
-        d = self.instance("0", "pooled")
-        self.assertTrue(cli.claim(d))
-        self.assertFalse(cli.claim(d))
-
-    def test_destroy_all_ends_every_instance(self):
-        for name in ("0", "1"):
-            self.instance(name, "running")
-        with mock.patch("builtins.print"):
-            cli.main(["destroy", "all"])
-        for p in self.procs:
-            p.wait(timeout=5)
-        self.assertEqual(cli.instances(), [])
-
-    def test_list_distinguishes_unavailable_memory_from_zero(self):
-        self.instance("0", "running")
-        with mock.patch.object(cli.processes, "resident_memory", return_value=None), \
-                contextlib.redirect_stdout(io.StringIO()) as output:
-            cli.main(["list"])
-        self.assertIn("memory unknown", output.getvalue())
-        self.assertNotIn("0 MB", output.getvalue())
-
-    def test_destroy_removes_the_instance_s_temporary_app_data(self):
-        d = self.instance("0", "running")
-        data = d / "tmp" / "robolectric-NoemuDriver_serve1" / "com.x-dataDir"
-        data.mkdir(parents=True)
-        (d / "datadir").write_text(str(data))
-        with mock.patch("builtins.print"):
-            cli.main(["destroy", "0"])
-        self.assertFalse(data.parent.exists())
-
-    def test_spawn_without_a_build_says_what_to_do(self):
-        (cli.STATE / "launch.json").unlink()
-        with self.assertRaises(SystemExit) as e:
-            cli.main(["spawn"])
-        self.assertIn("noemu build", str(e.exception))
-
-
 class DoctorTest(unittest.TestCase):
     def test_it_names_what_will_stand_in_the_way(self):
         cwd = os.getcwd()
@@ -302,10 +201,11 @@ class McpTest(unittest.TestCase):
                 request.assert_not_called()
 
     def test_a_failing_tool_is_a_tool_error_not_a_crash(self):
-        reply, = self.serve({"jsonrpc": "2.0", "id": 1, "method": "tools/call",
-                             "params": {"name": "screen", "arguments": {"id": "999"}}})
+        with mock.patch.object(cli, "supervised", side_effect=cli.NoemuError("not_running", "no instance 999")):
+            reply, = self.serve({"jsonrpc": "2.0", "id": 1, "method": "tools/call",
+                                 "params": {"name": "screen", "arguments": {"id": "999"}}})
         self.assertTrue(reply["result"]["isError"])
-        self.assertIn("isn't running", reply["result"]["content"][0]["text"])
+        self.assertIn("no instance 999", reply["result"]["content"][0]["text"])
 
     def test_malformed_messages_do_not_end_the_session(self):
         for raw in ("{", "[]", "null", '{"jsonrpc":"2.0","id":2,"method":"tools/call","params":[]}'):

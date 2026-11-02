@@ -72,8 +72,8 @@ destroyed first. A request that cannot be served in time fails with
 `capacity_timeout`, stating active instances, JVMs, memory, and queue length. A
 client that disconnects leaves the queue.
 
-Settings are read when the supervisor starts; `noemu shutdown` stops it without
-stopping instances.
+Settings are read when the supervisor starts. `noemu shutdown` stops the supervisor
+and its warm instances; leased instances keep running for the next supervisor.
 
 ## Recovery and cleanup
 

@@ -15,8 +15,9 @@ simulation. Verification on Android is a separate, planned capability.
 > regressions, a clean wheel installation with the MCP stdio check, Kotlin compilation,
 > and live driver tests on both fixtures. This shows that the driver does what its
 > tests assert on the JVM. It does not show that behavior matches Android; that
-> comparison is milestone C. macOS has not been validated. The shared supervisor,
-> immutable builds, replay engine, and Android verification adapter are planned. Read
+> comparison is milestone C. macOS has not been validated. The shared supervisor and
+> immutable builds are implemented (milestone B). The replay engine and Android
+> verification adapter are planned. Read
 > the [validation record](docs/VALIDATION.md) before relying on verification results.
 
 ## Implemented interfaces
@@ -29,7 +30,7 @@ Android compatibility; the fixture and platform checks are tracked separately.
 - Tap a unique label or an observed element; enter text, including multiple lines.
 - Navigate back, open activities or app links, rotate, and restore activity state.
 - Inspect screenshots and logs; run the experimental lifecycle crawler.
-- Build once and start separate JVM instances with the existing fleet commands.
+- Build once into an immutable generation; lease isolated instances across worktrees.
 - Drive the same commands through the official Python MCP SDK.
 
 The Android target of a Kotlin Multiplatform project can be used when its app
@@ -131,33 +132,57 @@ Clients that bypass the proxy, including some raw-socket, NIO, and UDP clients,
 are not covered. Permissions are currently granted automatically; permission
 denial experiments are not supported.
 
-## Experimental fleet
+## Compare candidate fixes
 
-```sh
-noemu build --module :app
-noemu pool 1
-noemu spawn                       # prints: ID PORT
-NOEMU_ID=0 noemu screen            # use the returned ID
-noemu --id 0 tap "Sign in"
-noemu sleep 0
-noemu wake 0
-noemu destroy 0
-noemu list
+A broken app and two candidate fixes, each in its own git worktree, built into its
+own immutable generation, and driven through the same journey on separate instances
+at the same time:
+
+```console
+$ NOEMU_HOME=$(mktemp -d) python examples/rotation-fixes/compare.py
+variant       generation        verdict    first failure
+broken        bd3755ef4f2a9764  failed     after `rotate`: expected 3, saw 0
+candidate-a   6b64c8c102756a01  failed     after `tap Add`: expected 4, saw 1
+candidate-b   636a01adb82f69a7  passed
+JVM simulation on Robolectric; not verified on Android.
 ```
 
-`spawn --no-refill` disables background pool replenishment. `destroy all` destroys
-verified live instances in the current project's fleet. Destroy waits for process
-exit before removing that instance's allocated temporary directory. Lifecycle
-commands require recorded PID, creation time, and owner identity. Old directories
-containing only a PID are deliberately not trusted for signaling.
+Candidate A restores the text on screen rather than the count. It looks right after
+rotation, and only the next tap shows that the state was lost. The journey asserts
+the state after rotation *and* after more use. The full run, including the three
+builds, took 25 seconds on the validation host. The live gate checks these verdicts.
+Replayable recordings (milestone E) and the same journey on Android (milestone F)
+are not implemented yet.
 
-The current fleet stores metadata under the project’s `.gradle/` directory. It
-has **no shared resource scheduler or immutable build snapshot**. Do not treat it
-as the isolation and cross-worktree lease system described in milestone B.
-Sleeping JVMs retain memory. A changed build can still invalidate paths used by
-older instances; concurrent revision comparison must wait for immutable generations.
-Memory output is resident memory in MiB for the verified process. An unavailable
-measurement is shown as `memory unknown`, never as zero usage.
+## Parallel agents: leases and generations
+
+```sh
+noemu build --module :app          # compile, snapshot, publish this worktree's generation
+eval "$(noemu acquire)"            # an exclusive instance; sets NOEMU_LEASE
+noemu screen                       # every command acts on the leased instance
+noemu rotate 2
+noemu release                      # destroys it; a later acquire starts clean
+noemu status                       # every instance, generation, limit, and memory charge
+```
+
+One supervisor per OS user serves every project and worktree. Each build becomes an
+immutable, content-addressed **generation**: later builds, failed builds, and
+`gradle clean` cannot change the code a running instance loads, and every result
+names the generation it ran. Each worktree has its own current generation, so two
+agents on two branches run their own code side by side.
+
+An exclusive lease refuses every caller without its secret. Each instance has its own
+working and temporary directories; released instances are destroyed, never reused.
+By default, at most two instances are leased and awake, four JVMs exist, and the
+fleet's memory charge stays within the smaller of 4 GiB and 40% of available memory.
+Requests queue in order and fail with `capacity_timeout`, stating the reason, if
+nothing frees up in time. `sleep` freezes a JVM without releasing its memory.
+
+`spawn`, `--id`, `NOEMU_ID`, `pool`, `list`, and `destroy` still work. `spawn` returns
+a shared instance usable by ID alone; prefer `acquire` when agents share a machine.
+See [the supervisor reference](docs/SUPERVISOR.md) for limits, recovery, retention,
+and the data boundary. Memory output is resident memory in MiB for the verified
+process. An unavailable measurement is shown as `memory unknown`, never as zero.
 
 ## MCP integration
 
@@ -178,8 +203,8 @@ client that supports a working-directory field can use:
 
 Working-directory configuration varies by client. The server uses stdio and the
 official MCP SDK. Tool inputs are schema-validated; malformed messages do not
-terminate the session. Tool calls are serialized while the legacy orchestration
-uses process-global instance selection.
+terminate the session. `acquire` returns an `id` and `lease`; pass both to other
+tools. One server's tool calls are serialized; separate agents run concurrently.
 
 Driver operations return the same versioned result as `structuredContent`, alongside
 readable text (or an image for `shot`). Agents can inspect observation references,
@@ -193,12 +218,15 @@ For `network`, `delay_ms` is required with `state: "slow"` and rejected otherwis
 
 | Variable | Purpose |
 | --- | --- |
-| `NOEMU_ID` | Select a fleet instance; `--id` takes precedence. |
+| `NOEMU_LEASE` | Act on the instance of this lease, from `noemu acquire`. |
+| `NOEMU_ID` | Select a shared instance from `spawn`; `--id` takes precedence. |
 | `NOEMU_SHOTS=0` | Disable automatic screenshots; explicit `shot` still works. |
 | `NOEMU_SETTLE_MS` | Limit waiting for the UI to settle; default 4000 ms. |
 | `NOEMU_XMX` | Heap size for a fleet JVM; default `1g`. |
 | `NOEMU_JVM_ARGS` | Additional fleet JVM options. |
-| `NOEMU_IDLE_MIN` | End a fleet instance after its idle interval. |
+| `NOEMU_HOME` | Supervisor state directory; default `~/.local/state/noemu`. |
+| `NOEMU_LEASE_SECONDS` | End a lease after this long without actions; default 1800. |
+| `NOEMU_MAX_ACTIVE`, `NOEMU_MAX_JVMS`, `NOEMU_WARM`, `NOEMU_MEMORY_MIB` | Supervisor limits; see [SUPERVISOR.md](docs/SUPERVISOR.md). |
 | `NOEMU_GRADLE_ARGS` | Additional arguments for the Gradle invocation. |
 | `NOEMU_DEPS` | Comma-separated test-runtime dependencies, such as host-native alternatives. |
 
@@ -234,9 +262,10 @@ results have not been revalidated with these fixes. See the
 
 ## Architecture and direction
 
-Python owns orchestration; Kotlin executes the app on Robolectric. The planned
-supervisor will manage immutable builds, exclusive leases, resource budgets, and
-experiment records. Replays will carry explicit assertions, capabilities,
+Python owns orchestration; Kotlin executes the app on Robolectric. A per-user
+supervisor manages immutable builds, exclusive leases, and resource budgets; it will
+also hold experiment records. NoEmu builds on Robolectric rather than porting the
+framework ([decision 1](docs/decisions/0001-keep-robolectric.md)). Replays will carry explicit assertions, capabilities,
 limitations, and backend identity. Optional Android verification will replay a
 supported subset against an explicitly chosen ADB target through Maestro.
 

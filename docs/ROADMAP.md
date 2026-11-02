@@ -40,7 +40,10 @@ versioned JSON, bounded messages, and official MCP SDK handling.
 **Exit gate:** Python regressions, driver integration tests on both fixtures, and
 clean package-install tests pass. Known failures must not be reported as success.
 
-## Current gate: B — useful fleet and first external pilot
+## Completed gate: B — useful fleet and first external pilot
+
+Passed three clean runs at `4b64127`; see [the evidence](evidence/milestone-b.md). The external
+pilot is deferred: recruiting users is outside the authorized scope.
 
 Implement one local supervisor per OS user, shared across projects and worktrees:
 private Unix socket, transactional SQLite metadata, immutable runtime generations,
@@ -63,7 +66,7 @@ later builds succeed or fail. Add `acquire`, `release`, `sleep`, `wake`, `status
 exceed configured limits, cross instance data boundaries through NoEmu, or run a
 different generation accidentally. This is the first external pilot release.
 
-## C — Android conformance laboratory
+## Current gate: C — Android conformance laboratory
 
 Define independent expected outcomes and run the same scenarios on the JVM and
 instrumented Android fixtures. Cover initialization order; activity launch/back and

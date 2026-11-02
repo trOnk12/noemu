@@ -45,6 +45,15 @@ class GateArtifactsTest(unittest.TestCase):
             self.assertEqual(item["sha256"], hashlib.sha256(b"evidence").hexdigest())
             self.assertFalse(item["truncated"])
 
+    def test_supervisor_logs_are_kept_and_instance_app_data_is_not(self):
+        paths = ["supervisor.log", "instances/3/log.txt", "instances/3/crash.txt"]
+        for path in paths:
+            self.put(path)
+        self.put("instances/3/tmp/app-data/files/token", b"private app data")
+        self.put("generations/abc/cp/000-classes/App.class", b"build output")
+        self.assertTrue(artifacts.collect(self.source, self.output))
+        self.assertEqual({f["source"] for f in self.manifest()["files"]}, set(paths))
+
     def test_size_limits_retain_tails_and_mark_evidence_incomplete(self):
         self.put("fixtures/.gradle/noemu/a.log", b"0123456789")
         self.put("fixtures/.gradle/noemu/b.log", b"abcdefghij")
